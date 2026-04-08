@@ -255,7 +255,7 @@
         poisonTickAt: 0,
         lastDamageAt: -999,
         key: false,
-        sword: {tier:'silver', damage:4, durability:14, max:14, cooldown:0.4, last:-9},
+        sword: {tier:'wood', damage:1, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         bow: {tier:'silver', damage:2, arrows:14, max:14, speed:480, cooldown:0.8, last:-9},
       };
     }
@@ -494,10 +494,8 @@
       }
 
       // player attacks
-      if ((keys.has('j') || keys.has('J')) && p.sword && state.t - p.sword.last > p.sword.cooldown && p.sword.durability > 0) {
+      if ((keys.has('j') || keys.has('J')) && p.sword && state.t - p.sword.last > p.sword.cooldown && (p.sword.permanent || p.sword.durability > 0)) {
         p.sword.last = state.t;
-        p.sword.durability--;
-        if (p.sword.durability <= 0) p.sword = null;
         performSwordAttack();
       }
       if ((keys.has('k') || keys.has('K')) && p.bow && state.t - p.bow.last > p.bow.cooldown && p.bow.arrows > 0) {
@@ -599,7 +597,7 @@
         const proj = dot(vx,vy,dir.x,dir.y);
         const perp = Math.abs(vx*dir.y - vy*dir.x);
         if (proj > 0 && proj < reach && perp < thickness + e.r) {
-          damageEnemy(e, p.sword ? p.sword.damage : 4);
+          damageEnemyBySword(e, p.sword ? p.sword.damage : 1);
         }
       }
       for (const s of state.spawners) {
@@ -608,7 +606,11 @@
         const proj = dot(vx,vy,dir.x,dir.y);
         const perp = Math.abs(vx*dir.y - vy*dir.x);
         if (proj > 0 && proj < reach && perp < thickness + s.r) {
-          s.hp -= 3;
+          if (state.player.sword && !state.player.sword.permanent) {
+            state.player.sword.durability--;
+            if (state.player.sword.durability <= 0) state.player.sword = makeWeapon('sword', 'wood');
+          }
+          s.hp -= (state.player.sword ? state.player.sword.damage : 1);
           if (s.hp <= 0) s.dead = true;
         }
       }
@@ -619,7 +621,11 @@
         const proj = dot(vx,vy,dir.x,dir.y);
         const perp = Math.abs(vx*dir.y - vy*dir.x);
         if (proj > 0 && proj < reach && perp < thickness + Math.max(o.w,o.h)/2) {
-          o.hp -= 2;
+          if (state.player.sword && !state.player.sword.permanent) {
+            state.player.sword.durability--;
+            if (state.player.sword.durability <= 0) state.player.sword = makeWeapon('sword', 'wood');
+          }
+          o.hp -= (state.player.sword ? state.player.sword.damage : 1);
           if (o.hp <= 0) o.dead = true;
         }
       }
@@ -743,6 +749,15 @@
       }
     }
 
+    function damageEnemyBySword(e, dmg){
+      damageEnemy(e, dmg);
+      const p = state.player;
+      if (p.sword && !p.sword.permanent) {
+        p.sword.durability--;
+        if (p.sword.durability <= 0) p.sword = makeWeapon('sword', 'wood');
+      }
+    }
+
     function damagePlayer(dmg, poisonSec){
       const p = state.player;
       p.hp -= dmg;
@@ -766,7 +781,12 @@
     function makeWeapon(kind, tier){
       const t = tier;
       if (kind==='sword') {
-        const map = {copper:{damage:2,durability:8,cooldown:0.45}, silver:{damage:4,durability:14,cooldown:0.4}, gold:{damage:8,durability:24,cooldown:0.35}};
+        const map = {
+          wood:{damage:1,durability:Infinity,cooldown:0.4,permanent:true},
+          copper:{damage:2,durability:40,cooldown:0.45,permanent:false},
+          silver:{damage:4,durability:70,cooldown:0.4,permanent:false},
+          gold:{damage:8,durability:120,cooldown:0.35,permanent:false}
+        };
         return {tier:t, ...map[t], max:map[t].durability, last:-9};
       }
       const map = {copper:{damage:1,arrows:8,speed:430,cooldown:0.9}, silver:{damage:2,arrows:14,speed:480,cooldown:0.8}, gold:{damage:4,arrows:24,speed:530,cooldown:0.65}};
@@ -914,7 +934,7 @@
       }
       ctx.rotate(e.angle || 0);
       ctx.fillStyle = e.damageFlash > 0 ? '#ffffff' : e.color;
-      drawShape(e.shape, e.r, e.boss);
+      drawShape(e.shape, e.r, e.boss, e.poison);
       ctx.restore();
       if ((e.hpBarVisible || e.boss) && !e.dead) drawBar(x-e.r, y-e.r-16, e.r*2, 8, e.hp/e.hpMax);
       if (!e.dead) {
@@ -931,7 +951,7 @@
       ctx.translate(x,y);
       ctx.rotate(p.angle);
       ctx.fillStyle = state.t < p.poisonUntil ? '#c2ffd2' : '#f8f8f0';
-      drawShape(p.shape, p.r, false);
+      drawShape(p.shape, p.r, false, false);
       ctx.strokeStyle = '#111';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -939,22 +959,7 @@
       ctx.restore();
     }
 
-    function drawShape(shape, r, boss=false){
-      ctx.beginPath();
-      if (shape==='circle') ctx.arc(0,0,r,0,Math.PI*2);
-      else if (shape==='square') ctx.rect(-r,-r,r*2,r*2);
-      else if (shape==='triangle') { ctx.moveTo(r,0); ctx.lineTo(-r,-r*0.8); ctx.lineTo(-r,r*0.8); ctx.closePath(); }
-      else if (shape==='diamond') { ctx.moveTo(r,0); ctx.lineTo(0,-r); ctx.lineTo(-r,0); ctx.lineTo(0,r); ctx.closePath(); }
-      else if (shape==='hex') {
-        for(let i=0;i<6;i++){
-          const a = i/6*Math.PI*2;
-          const px = Math.cos(a)*r, py = Math.sin(a)*r;
-          if (!i) ctx.moveTo(px,py); else ctx.lineTo(px,py);
-        }
-        ctx.closePath();
-      }
-      ctx.fill();
-      if (boss) {
+    function drawShape(shape
         ctx.strokeStyle = '#fff6';
         ctx.lineWidth = 3;
         ctx.stroke();
