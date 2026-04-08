@@ -44,7 +44,7 @@
 再開/リスタート: R</div>
 <script>
 (() => {
-  const VERSION = '0.1.1';
+  const VERSION = '0.1.2';
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
 
@@ -99,6 +99,38 @@
     silver: { name: '銀の弓', color: '#d8d8df', damage: 2, arrows: 14 },
     gold:   { name: '金の弓', color: '#f0cf52', damage: 4, arrows: 24 },
   };
+
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  function beep(freq = 440, duration = 0.05, type = 'square', volume = 0.03, slideTo = null) {
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(40, slideTo), now + duration);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(volume, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+  }
+
+  function playSfx(name) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (name === 'sword') beep(520, 0.06, 'square', 0.025, 280);
+    if (name === 'bow') beep(740, 0.05, 'triangle', 0.022, 420);
+    if (name === 'hit') beep(180, 0.07, 'sawtooth', 0.02, 90);
+    if (name === 'break') beep(260, 0.09, 'square', 0.025, 120);
+    if (name === 'pickup') beep(880, 0.06, 'triangle', 0.02, 1180);
+    if (name === 'poison') beep(140, 0.08, 'sawtooth', 0.018, 100);
+    if (name === 'stairs') beep(660, 0.08, 'triangle', 0.02, 990);
+    if (name === 'spawn') beep(220, 0.05, 'square', 0.012, 170);
+  }
+
+  const PASTEL_BLAST = ['#ffd1dc', '#cde7ff', '#d9ffd6', '#fff0b8', '#e6d6ff', '#bff7f0'];
 
   const state = {
     gameOver: false,
@@ -474,7 +506,10 @@
     p.regenTimer = 0;
     state.damageFlash = 0.16;
     burst(p.x, p.y, '#fff', 10);
-    if (poison) p.poisoned = Math.max(p.poisoned, rand(5, 20));
+    if (poison) {
+      p.poisoned = Math.max(p.poisoned, rand(5, 20));
+      playSfx('poison');
+    }
     if (p.hp <= 0) {
       p.hp = 0;
       state.gameOver = true;
@@ -531,13 +566,32 @@
         maxLife: 0.6,
         color,
         size: rand(2, 5),
+        kind: 'spark',
       });
     }
+  }
+
+  function pastelExplosion(x, y, baseRadius = 12) {
+    for (let i = 0; i < 3; i++) {
+      state.effects.push({
+        x, y,
+        vx: 0,
+        vy: 0,
+        life: 0.22 + i * 0.04,
+        maxLife: 0.22 + i * 0.04,
+        color: PASTEL_BLAST[i % PASTEL_BLAST.length],
+        size: baseRadius + i * 6,
+        kind: 'ring',
+      });
+    }
+    burst(x, y, PASTEL_BLAST[randi(0, PASTEL_BLAST.length - 1)], 8);
+    playSfx('hit');
   }
 
   function useSword() {
     const p = state.player;
     if (state.gameOver || p.swordAnim) return;
+    playSfx('sword');
     p.swordAnim = { t: 0, hitDone: false, length: 0 };
     p.swordHitMap.clear();
   }
@@ -548,9 +602,10 @@
     if (!p.bow || p.arrowCount <= 0) return;
     const now = performance.now() * 0.001;
     if (now - p.lastBowShot < 0.24) return;
+    playSfx('bow');
     const dir = { x: Math.cos(p.angle), y: Math.sin(p.angle) };
     const speed = 420;
-    state.projectiles.push(createProjectile(p.x + dir.x * 18, p.y + dir.y * 18, dir.x * speed, dir.y * speed, BOW_DATA[p.bow].damage + Math.floor(p.atk * 0.35), 'player', BOW_DATA[p.bow].color, false, 4));
+    state.projectiles.push(createProjectile(p.x + dir.x * 18, p.y + dir.y * 18, dir.x * speed, dir.y * speed, (BOW_DATA[p.bow].damage * 3) + Math.floor(p.atk * 0.35), 'player', BOW_DATA[p.bow].color, false, 4));
     p.arrowCount--;
     p.lastBowShot = now;
     if (p.arrowCount <= 0) p.bow = null;
@@ -634,23 +689,25 @@
       }
 
       let hitAnything = false;
-      const swordPower = p.atk + SWORD_DATA[p.sword.tier].damage + p.frontAtkBonus;
+      const swordPower = p.atk + (SWORD_DATA[p.sword.tier].damage * 2) + p.frontAtkBonus;
       const targets = state.boss && !state.boss.dead ? state.enemies.concat([state.boss]) : state.enemies;
 
       for (const enemy of targets) {
         if (!enemy || enemy.dead) continue;
         const d = dist(tipX, tipY, enemy.x, enemy.y);
-        if (d < enemy.radius + 8 && !p.swordHitMap.has(enemy)) {
+        if (d < enemy.radius + 4 && !p.swordHitMap.has(enemy)) {
           p.swordHitMap.add(enemy);
           damageEnemy(enemy, swordPower, p.angle);
+          pastelExplosion(enemy.x, enemy.y, 10);
           hitAnything = true;
         }
       }
 
       for (const nest of state.nests) {
         if (nest.dead) continue;
-        if (dist(tipX, tipY, nest.x, nest.y) < nest.radius + 8) {
-          nest.hp -= p.atk + SWORD_DATA[p.sword.tier].damage;
+        if (dist(tipX, tipY, nest.x, nest.y) < nest.radius + 4) {
+          nest.hp -= p.atk + (SWORD_DATA[p.sword.tier].damage * 2);
+          pastelExplosion(nest.x, nest.y, 10);
           hitAnything = true;
           if (nest.hp <= 0) {
             nest.dead = true;
@@ -663,8 +720,9 @@
 
       for (const turret of state.turrets) {
         if (turret.dead) continue;
-        if (dist(tipX, tipY, turret.x, turret.y) < turret.radius + 8) {
-          turret.hp -= p.atk + SWORD_DATA[p.sword.tier].damage;
+        if (dist(tipX, tipY, turret.x, turret.y) < turret.radius + 4) {
+          turret.hp -= p.atk + (SWORD_DATA[p.sword.tier].damage * 2);
+          pastelExplosion(turret.x, turret.y, 10);
           hitAnything = true;
           if (turret.hp <= 0) {
             turret.dead = true;
@@ -675,7 +733,11 @@
         }
       }
 
-      if (destroyBreakableAtPixel(tipX, tipY)) hitAnything = true;
+      if (destroyBreakableAtPixel(tipX, tipY)) {
+        pastelExplosion(tipX, tipY, 10);
+        playSfx('break');
+        hitAnything = true;
+      }
 
       if (phase >= 1) {
         if (hitAnything && p.sword.tier !== 'wood') {
@@ -692,6 +754,7 @@
 
     if (state.player.hasKey && dist(p.x, p.y, state.stairs.x, state.stairs.y) < 22) {
       state.floor++;
+      playSfx('stairs');
       loadFloor(true);
     }
   }
@@ -793,10 +856,13 @@
       if (nest.dead) continue;
       nest.spawnTimer -= dt;
       if (nest.spawnTimer <= 0) {
-        nest.spawnTimer = rand(4.0, 7.0);
+        nest.spawnTimer = rand(2.0, 3.6);
         const types = ['melee', 'poison', 'charger'];
         const type = types[randi(0, types.length - 1)];
         state.enemies.push(createEnemy(type, nest.x + rand(-20, 20), nest.y + rand(-20, 20), state.floor));
+        if (Math.random() < 0.65) state.enemies.push(createEnemy(type, nest.x + rand(-28, 28), nest.y + rand(-28, 28), state.floor));
+        playSfx('spawn');
+        burst(nest.x, nest.y, '#caa7ff', 10);
       }
     }
   }
@@ -811,6 +877,7 @@
         if (turret.mode === 'aim') dir = normalize(state.player.x - turret.x, state.player.y - turret.y);
         else dir = { x: Math.cos(turret.angle), y: Math.sin(turret.angle) };
         state.projectiles.push(createProjectile(turret.x, turret.y, dir.x * 240, dir.y * 240, 4 + Math.floor(state.floor * 0.5), 'enemy', '#9ad0ff', false, 5));
+        playSfx('spawn');
         turret.shootCd = rand(1.2, 2.1);
       }
     }
@@ -833,6 +900,7 @@
           if (!enemy || enemy.dead) continue;
           if (dist(pr.x, pr.y, enemy.x, enemy.y) < pr.radius + enemy.radius) {
             damageEnemy(enemy, pr.damage, Math.atan2(pr.vy, pr.vx));
+            pastelExplosion(pr.x, pr.y, 12);
             pr.dead = true;
             break;
           }
@@ -841,6 +909,7 @@
           if (nest.dead) continue;
           if (dist(pr.x, pr.y, nest.x, nest.y) < pr.radius + nest.radius) {
             nest.hp -= pr.damage;
+            pastelExplosion(pr.x, pr.y, 12);
             if (nest.hp <= 0) {
               nest.dead = true;
               burst(nest.x, nest.y, '#cc8855', 16);
@@ -855,6 +924,7 @@
           if (turret.dead) continue;
           if (dist(pr.x, pr.y, turret.x, turret.y) < pr.radius + turret.radius) {
             turret.hp -= pr.damage;
+            pastelExplosion(pr.x, pr.y, 12);
             if (turret.hp <= 0) {
               turret.dead = true;
               burst(turret.x, turret.y, '#88bbff', 16);
@@ -869,6 +939,7 @@
         const p = state.player;
         if (dist(pr.x, pr.y, p.x, p.y) < pr.radius + p.radius) {
           damagePlayer(pr.damage, Math.atan2(pr.vy, pr.vx), pr.poison);
+          pastelExplosion(pr.x, pr.y, 12);
           pr.dead = true;
         }
       }
@@ -890,17 +961,21 @@
       if (dist(item.x, item.y, p.x, p.y) < item.radius + p.radius + 2) {
         if (item.kind === 'potion') {
           p.hp = Math.min(p.maxHp, p.hp + 8);
+          playSfx('pickup');
           burst(item.x, item.y, '#ff7070', 10);
         } else if (item.kind === 'mushroom') {
           p.antidoteMushrooms++;
+          playSfx('pickup');
           burst(item.x, item.y, '#b7ff72', 10);
         } else if (item.kind === 'sword') {
           const data = SWORD_DATA[item.tier];
           p.sword = { tier: item.tier, durability: data.durability };
+          playSfx('pickup');
           burst(item.x, item.y, data.color, 12);
         } else if (item.kind === 'bow') {
           const data = BOW_DATA[item.tier];
           p.bow = item.tier;
+          playSfx('pickup');
           p.arrowCount = data.arrows;
           burst(item.x, item.y, data.color, 12);
         }
@@ -1101,9 +1176,18 @@
 
     for (const e of state.effects) {
       const s = worldToScreen(e.x, e.y);
-      ctx.globalAlpha = clamp(e.life / e.maxLife, 0, 1);
-      ctx.fillStyle = e.color;
-      ctx.fillRect(s.x, s.y, e.size, e.size);
+      const a = clamp(e.life / e.maxLife, 0, 1);
+      ctx.globalAlpha = a;
+      if (e.kind === 'ring') {
+        const pulse = 1 + (1 - a) * 1.8;
+        ctx.fillStyle = PASTEL_BLAST[Math.floor((performance.now() * 0.02 + e.size) % PASTEL_BLAST.length)];
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, e.size * pulse, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = e.color;
+        ctx.fillRect(s.x, s.y, e.size, e.size);
+      }
       ctx.globalAlpha = 1;
     }
   }
