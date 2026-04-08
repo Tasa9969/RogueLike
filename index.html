@@ -150,7 +150,7 @@
     </div>
   </div>
   <div id="overlay"></div>
-  <div id="versionTag">ver. 0.1.2</div>
+  <div id="versionTag">ver. 0.1.3</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -609,7 +609,16 @@
       }
       const half = swing.duration / 2;
       const ratio = elapsed < half ? (elapsed / half) : (1 - (elapsed - half) / half);
-      const reach = 12 + 24 * clamp(ratio, 0, 1);
+      let reach = 12 + 72 * clamp(ratio, 0, 1);
+      const wallStep = 6;
+      for (let d = 12; d <= reach; d += wallStep) {
+        const tx = p.x + dir.x * d;
+        const ty = p.y + dir.y * d;
+        if (!canMoveCircle(tx, ty, 4)) {
+          reach = Math.max(12, d - wallStep);
+          break;
+        }
+      }
       const thickness = 10;
       const dir = {x:Math.cos(p.angle), y:Math.sin(p.angle)};
 
@@ -939,7 +948,16 @@
         if (elapsed <= state.swordSwing.duration) {
           const half = state.swordSwing.duration / 2;
           const ratio = elapsed < half ? (elapsed / half) : (1 - (elapsed - half) / half);
-          const reach = 12 + 24 * clamp(ratio, 0, 1);
+          let reach = 12 + 72 * clamp(ratio, 0, 1);
+          const wallStep = 6;
+          for (let d = 12; d <= reach; d += wallStep) {
+            const tx = p.x + dx * d;
+            const ty = p.y + dy * d;
+            if (!canMoveCircle(tx, ty, 4)) {
+              reach = Math.max(12, d - wallStep);
+              break;
+            }
+          }
           const sx = p.x - cam.x, sy = p.y - cam.y;
           const dx = Math.cos(p.angle), dy = Math.sin(p.angle);
           ctx.strokeStyle = tierColor(p.sword.tier);
