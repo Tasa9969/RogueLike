@@ -648,12 +648,43 @@
             damageEnemy(e, dToEnemy);
             damagePlayer(dToPlayer, e.poison ? rand(5,20) : 0);
           }
-          // light push
           const n = norm(e.x-p.x, e.y-p.y);
           p.vx -= n.x*8; p.vy -= n.y*8;
           e.vx += n.x*8; e.vy += n.y*8;
         }
       }
+
+      for (let i = 0; i < state.enemies.length; i++) {
+        const a = state.enemies[i];
+        if (!a || a.dead) continue;
+        for (let j = i + 1; j < state.enemies.length; j++) {
+          const b = state.enemies[j];
+          if (!b || b.dead) continue;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const d = Math.hypot(dx, dy) || 0.0001;
+          const minDist = a.r + b.r;
+          if (d < minDist) {
+            const overlap = minDist - d;
+            const nx = dx / d;
+            const ny = dy / d;
+            const totalMass = (a.mass || 1) + (b.mass || 1);
+            const pushA = (b.mass || 1) / totalMass;
+            const pushB = (a.mass || 1) / totalMass;
+
+            a.x -= nx * overlap * 0.5 * pushA;
+            a.y -= ny * overlap * 0.5 * pushA;
+            b.x += nx * overlap * 0.5 * pushB;
+            b.y += ny * overlap * 0.5 * pushB;
+
+            a.vx -= nx * 6 * pushA;
+            a.vy -= ny * 6 * pushA;
+            b.vx += nx * 6 * pushB;
+            b.vy += ny * 6 * pushB;
+          }
+        }
+      }
+
       for (const s of state.spawners) {
         if (s.dead) continue;
         if (dist(p,s) < p.r + s.r) {
