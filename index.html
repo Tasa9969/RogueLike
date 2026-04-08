@@ -245,7 +245,16 @@
       };
     }
 
-    function tierColor(t){ return t==='gold' ? '#e7c84a' : t==='silver' ? '#d7e0ea' : '#b98048'; }
+    function tierColor(t){
+      return t==='wood' ? '#d8c29d' :
+        t==='copper' ? '#8b5a2b' :
+        t==='iron' ? '#6f7f8f' :
+        t==='silver' ? '#d7e0ea' :
+        t==='flame' ? '#d94a3a' :
+        t==='lizard' ? '#9acd32' :
+        t==='gold' ? '#e7c84a' :
+        '#b98048';
+    }
 
     function goldValue(e){
       return Math.max(1, Math.round(
