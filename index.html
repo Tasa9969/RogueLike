@@ -44,7 +44,7 @@
 再開/リスタート: R</div>
 <script>
 (() => {
-  const VERSION = '0.1.2';
+  const VERSION = '0.1.3';
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
 
@@ -56,6 +56,9 @@
   resize();
 
   const keys = new Set();
+  window.addEventListener('pointerdown', () => { try { ensureAudio(); } catch (e) {} });
+  window.addEventListener('keydown', () => { try { ensureAudio(); } catch (e) {} });
+
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     keys.add(k);
@@ -100,26 +103,36 @@
     gold:   { name: '金の弓', color: '#f0cf52', damage: 4, arrows: 24 },
   };
 
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  let audioCtx = null;
+
+  function ensureAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
 
   function beep(freq = 440, duration = 0.05, type = 'square', volume = 0.03, slideTo = null) {
-    const now = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, now);
-    if (slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(40, slideTo), now + duration);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(volume, now + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start(now);
-    osc.stop(now + duration + 0.02);
+    try {
+      const ctx2 = ensureAudio();
+      const now = ctx2.currentTime;
+      const osc = ctx2.createOscillator();
+      const gain = ctx2.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      if (slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(40, slideTo), now + duration);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(volume, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      osc.connect(gain);
+      gain.connect(ctx2.destination);
+      osc.start(now);
+      osc.stop(now + duration + 0.02);
+    } catch (err) {
+      console.warn('audio unavailable', err);
+    }
   }
 
   function playSfx(name) {
-    if (audioCtx.state === 'suspended') audioCtx.resume();
     if (name === 'sword') beep(520, 0.06, 'square', 0.025, 280);
     if (name === 'bow') beep(740, 0.05, 'triangle', 0.022, 420);
     if (name === 'hit') beep(180, 0.07, 'sawtooth', 0.02, 90);
@@ -133,6 +146,7 @@
   const PASTEL_BLAST = ['#ffd1dc', '#cde7ff', '#d9ffd6', '#fff0b8', '#e6d6ff', '#bff7f0'];
 
   const state = {
+    floorTransition: 0,
     gameOver: false,
     floor: 1,
     floorClearMessageTimer: 0,
@@ -169,7 +183,7 @@
       atk: 4,
       def: 1,
       weight: 2,
-      speed: 170,
+      speed: 340,
       accel: 620,
       frontAtkBonus: 1,
       frontDefBonus: 1,
@@ -430,6 +444,7 @@
     state.camera.x = state.player.x;
     state.camera.y = state.player.y;
     state.floorClearMessageTimer = 1.2;
+    state.floorTransition = 0.9;
   }
 
   function restartGame() {
@@ -679,14 +694,21 @@
       let len = 0;
       if (phase <= 0.5) len = lerp(8, 54, phase / 0.5);
       else len = lerp(54, 10, (phase - 0.5) / 0.5);
-      s.length = len;
 
-      const tipX = p.x + dirX * len;
-      const tipY = p.y + dirY * len;
-
-      if (isWallAtPixel(tipX, tipY)) {
-        s.t = Math.max(s.t, 0.5);
+      let actualLen = len;
+      for (let d = 8; d <= len; d += 3) {
+        const sx = p.x + dirX * d;
+        const sy = p.y + dirY * d;
+        if (isWallAtPixel(sx, sy)) {
+          actualLen = Math.max(8, d - 3);
+          s.t = Math.max(s.t, 0.5);
+          break;
+        }
       }
+      s.length = actualLen;
+
+      const tipX = p.x + dirX * actualLen;
+      const tipY = p.y + dirY * actualLen;
 
       let hitAnything = false;
       const swordPower = p.atk + (SWORD_DATA[p.sword.tier].damage * 2) + p.frontAtkBonus;
@@ -995,6 +1017,7 @@
 
   function update(dt) {
     if (state.floorClearMessageTimer > 0) state.floorClearMessageTimer -= dt;
+    if (state.floorTransition > 0) state.floorTransition = Math.max(0, state.floorTransition - dt);
     state.damageFlash = Math.max(0, state.damageFlash - dt);
     if (state.gameOver) return;
 
@@ -1169,7 +1192,7 @@
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(ps.x, ps.y);
-      ctx.lineTo(ps.x + Math.cos(p.angle) * len, ps.y + Math.sin(p.angle) * len);
+      ctx.lineTo(ps.x + Math.cos(p.angle) * p.swordAnim.length, ps.y + Math.sin(p.angle) * p.swordAnim.length);
       ctx.stroke();
       ctx.restore();
     }
@@ -1250,6 +1273,20 @@
       ctx.fillStyle = 'rgba(255,232,180,0.95)';
       ctx.font = '16px system-ui, sans-serif';
       ctx.fillText('フロアマスターを倒して鍵を入手せよ', canvas.width / 2, canvas.height - 24);
+      ctx.restore();
+    }
+
+    if (state.floorTransition > 0) {
+      const a = Math.min(1, state.floorTransition / 0.9);
+      ctx.fillStyle = `rgba(255,255,255,${0.12 * a})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(255,255,255,${0.9 * a})`;
+      ctx.font = 'bold 34px system-ui, sans-serif';
+      ctx.fillText(`Floor ${state.floor}`, canvas.width / 2, canvas.height / 2 - 10);
+      ctx.font = '18px system-ui, sans-serif';
+      ctx.fillText('迷宮が組み替わる...', canvas.width / 2, canvas.height / 2 + 24);
       ctx.restore();
     }
 
