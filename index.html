@@ -90,6 +90,20 @@
       opacity: 0;
       transition: opacity 200ms;
     }
+      #versionTag {
+      position: fixed;
+      top: 10px;
+      right: 12px;
+      z-index: 20;
+      pointer-events: none;
+      font-size: 12px;
+      color: rgba(255,255,255,0.72);
+      background: rgba(0,0,0,0.28);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 999px;
+      padding: 4px 10px;
+      backdrop-filter: blur(4px);
+    }
   </style>
 </head>
 <body>
@@ -134,6 +148,7 @@
     </div>
   </div>
   <div id="overlay"></div>
+  <div id="versionTag">ver. 0.1.0</div>
 
   <script>
     const canvas = document.getElementById('game');
