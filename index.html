@@ -148,7 +148,7 @@
     </div>
   </div>
   <div id="overlay"></div>
-  <div id="versionTag">ver. 0.1.0</div>
+  <div id="versionTag">ver. 0.1.1</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -959,7 +959,32 @@
       ctx.restore();
     }
 
-    function drawShape(shape
+    function drawShape(shape, r, boss=false, jagged=false){
+      ctx.beginPath();
+      if (jagged) {
+        const spikes = 14;
+        for (let i = 0; i < spikes * 2; i++) {
+          const a = (i / (spikes * 2)) * Math.PI * 2;
+          const rr = i % 2 === 0 ? r * 1.08 : r * 0.82;
+          const px = Math.cos(a) * rr;
+          const py = Math.sin(a) * rr;
+          if (!i) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+      } else if (shape==='circle') ctx.arc(0,0,r,0,Math.PI*2);
+      else if (shape==='square') ctx.rect(-r,-r,r*2,r*2);
+      else if (shape==='triangle') { ctx.moveTo(r,0); ctx.lineTo(-r,-r*0.8); ctx.lineTo(-r,r*0.8); ctx.closePath(); }
+      else if (shape==='diamond') { ctx.moveTo(r,0); ctx.lineTo(0,-r); ctx.lineTo(-r,0); ctx.lineTo(0,r); ctx.closePath(); }
+      else if (shape==='hex') {
+        for(let i=0;i<6;i++){
+          const a = i/6*Math.PI*2;
+          const px = Math.cos(a)*r, py = Math.sin(a)*r;
+          if (!i) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        }
+        ctx.closePath();
+      }
+      ctx.fill();
+      if (boss) {
         ctx.strokeStyle = '#fff6';
         ctx.lineWidth = 3;
         ctx.stroke();
@@ -1022,7 +1047,7 @@
         p.sword ? `剣:${p.sword.tier}` : '剣なし',
         p.bow ? `弓:${p.bow.tier}` : '弓なし'
       ].join(' / ');
-      ui.swordText.textContent = p.sword ? `${p.sword.durability}/${p.sword.max}` : '-';
+      ui.swordText.textContent = p.sword ? (p.sword.permanent ? '∞' : `${p.sword.durability}/${p.sword.max}`) : '-';
       ui.bowText.textContent = p.bow ? `${p.bow.arrows}/${p.bow.max}` : '-';
       ui.buffs.innerHTML = `
         <span class="badge">形状: ${p.shape}</span>
