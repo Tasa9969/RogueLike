@@ -90,7 +90,7 @@
       opacity: 0;
       transition: opacity 200ms;
     }
-      #versionTag {
+    #versionTag {
       position: fixed;
       top: 10px;
       right: 12px;
@@ -119,6 +119,7 @@
         <div class="row"><span>Gold</span><strong id="goldText"></strong></div>
         <div class="row"><span>鍵</span><strong id="keyText"></strong></div>
         <div class="row"><span>毒</span><strong id="poisonText"></strong></div>
+        <div class="row"><span>毒消しキノコ</span><strong id="mushroomText"></strong></div>
       </div>
 
       <div class="panel">
@@ -131,14 +132,15 @@
       <div class="panel hint">
         <div><strong>操作</strong></div>
         <div>移動: 矢印キー / WASD / テンキー風 8方向</div>
-        <div>剣: J</div>
+        <div>剣: J（常備の木の剣あり）</div>
         <div>弓: K</div>
+        <div>毒消しキノコ: L</div>
         <div>再開始: R</div>
       </div>
 
       <div class="panel hint">
         <div><strong>入っている要素</strong></div>
-        <div>プレイヤー中心スクロール、8方向慣性移動、接触ダメージ0.2秒更新、剣ライン攻撃、弓、毒、砲台、巣、フロアマスター、鍵、階段。</div>
+        <div>プレイヤー中心スクロール、8方向慣性移動、接触ダメージ0.2秒更新、伸びて戻る多段ヒット剣、弓、毒、毒消しキノコ、砲台、巣、フロアマスター、鍵、階段。</div>
       </div>
 
       <div class="panel hint">
@@ -148,7 +150,7 @@
     </div>
   </div>
   <div id="overlay"></div>
-  <div id="versionTag">ver. 0.1.1</div>
+  <div id="versionTag">ver. 0.1.2</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -163,6 +165,7 @@
       goldText: document.getElementById('goldText'),
       keyText: document.getElementById('keyText'),
       poisonText: document.getElementById('poisonText'),
+      mushroomText: document.getElementById('mushroomText'),
       weaponText: document.getElementById('weaponText'),
       swordText: document.getElementById('swordText'),
       bowText: document.getElementById('bowText'),
@@ -202,7 +205,6 @@
     function len(x,y){ return Math.hypot(x,y); }
     function norm(x,y){ const l=Math.hypot(x,y)||1; return {x:x/l,y:y/l}; }
     function lerp(a,b,t){ return a+(b-a)*t; }
-    function angNorm(a){ while(a>Math.PI)a-=Math.PI*2; while(a<-Math.PI)a+=Math.PI*2; return a; }
     function angleTo(x1,y1,x2,y2){ return Math.atan2(y2-y1,x2-x1); }
     function dot(ax,ay,bx,by){ return ax*bx+ay*by; }
     function circleRect(cx,cy,r,rx,ry,rw,rh){
@@ -253,6 +255,7 @@
         gold: 0,
         poisonUntil: 0,
         poisonTickAt: 0,
+        antidoteMushrooms: 0,
         lastDamageAt: -999,
         key: false,
         sword: {tier:'wood', damage:1, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
@@ -300,7 +303,6 @@
         }
       }
 
-      // diagonal-ish extra connectors
       for(let i=0;i<rooms.length-2;i+=2){
         carvePath(tiles, rooms[i].cx, rooms[i].cy, rooms[i+2].cx, rooms[i+2].cy, true);
       }
@@ -310,7 +312,6 @@
       const start = {x:(startRoom.cx+0.5)*TILE, y:(startRoom.cy+0.5)*TILE};
       const stairs = {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE};
 
-      // obstacles
       for (const room of rooms.slice(1)) {
         const count = randi(1, 4);
         for(let i=0;i<count;i++){
@@ -386,29 +387,30 @@
         }
       }
 
-      // floor master near stairs
       enemies.push(makeEnemy('boss', state.dungeon.stairs.x - TILE*2, state.dungeon.stairs.y, state.floor));
 
       state.enemies = enemies;
       state.projectiles = projectiles;
       state.pickups = pickups;
       state.spawners = spawners;
+      state.swordSwing = null;
       showOverlay('Floor ' + state.floor);
     }
 
     function makeEnemy(type,x,y,floor){
+      const bossShapes = ['hex','circle','diamond','triangle'];
       const base = {
         type, x,y,vx:0,vy:0,angle:0,lastContact:0,lastShot:0,
         damageFlash:0, dead:false, deathAnim:0, ai:['chase','intercept','erratic','flee'][randi(0,3)],
         hpBarVisible:false,
       };
-      if (type==='melee') Object.assign(base,{shape:'circle',color:'#d34545',r:14,hpMax:6+floor, hp:6+floor, attack:3+floor*0.1, defense:0, mass:1, accel:420, maxSpeed:140});
-      if (type==='tank') Object.assign(base,{shape:'square',color:'#4f7bd9',r:18,hpMax:10+floor*1.4,hp:10+floor*1.4,attack:2+floor*0.1,defense:2,mass:3,accel:240,maxSpeed:90});
-      if (type==='poisoner') Object.assign(base,{shape:'circle',color:'#2cbf65',r:14,hpMax:8+floor,hp:8+floor,attack:2,defense:1,mass:1.2,accel:300,maxSpeed:120,poison:true});
-      if (type==='charger') Object.assign(base,{shape:'triangle',color:'#e0c13f',r:13,hpMax:7+floor,hp:7+floor,attack:3,defense:0,mass:1,accel:520,maxSpeed:180});
-      if (type==='ranged') Object.assign(base,{shape:'diamond',color:'#9b5de5',r:15,hpMax:8+floor,hp:8+floor,attack:2,defense:0,mass:1,accel:260,maxSpeed:100,ranged:true,shotEvery:1.6});
-      if (type==='turret') Object.assign(base,{shape:'square',color:'#d14949',r:17,hpMax:9+floor,hp:9+floor,attack:3,defense:1,mass:999,accel:0,maxSpeed:0,turret:true,shotEvery:1.2,targeting:Math.random()<0.5?'direct':'fixed',fixedAngle:rand(0,Math.PI*2)});
-      if (type==='boss') Object.assign(base,{shape:'hex',color:'#f06d4f',r:28,hpMax:24+floor*3,hp:24+floor*3,attack:5+floor*0.2,defense:3,mass:6,accel:220,maxSpeed:95,boss:true,ranged:true,shotEvery:1.4});
+      if (type==='melee') Object.assign(base,{shape:'circle',color:'#d34545',r:14,hpMax:6+floor, hp:6+floor, attack:(3+floor*0.1)*2, defense:0, mass:1, accel:420, maxSpeed:140});
+      if (type==='tank') Object.assign(base,{shape:'square',color:'#4f7bd9',r:18,hpMax:10+floor*1.4,hp:10+floor*1.4,attack:(2+floor*0.1)*2,defense:2,mass:3,accel:240,maxSpeed:90});
+      if (type==='poisoner') Object.assign(base,{shape:'circle',color:'#2cbf65',r:14,hpMax:8+floor,hp:8+floor,attack:4,defense:1,mass:1.2,accel:300,maxSpeed:120,poison:true});
+      if (type==='charger') Object.assign(base,{shape:'triangle',color:'#e0c13f',r:13,hpMax:7+floor,hp:7+floor,attack:6,defense:0,mass:1,accel:520,maxSpeed:180});
+      if (type==='ranged') Object.assign(base,{shape:'diamond',color:'#9b5de5',r:15,hpMax:8+floor,hp:8+floor,attack:4,defense:0,mass:1,accel:260,maxSpeed:100,ranged:true,shotEvery:1.6});
+      if (type==='turret') Object.assign(base,{shape:'square',color:'#d14949',r:17,hpMax:9+floor,hp:9+floor,attack:6,defense:1,mass:999,accel:0,maxSpeed:0,turret:true,shotEvery:1.2,targeting:Math.random()<0.5?'direct':'fixed',fixedAngle:rand(0,Math.PI*2)});
+      if (type==='boss') Object.assign(base,{shape:bossShapes[randi(0,bossShapes.length-1)],color:['#f06d4f','#db7d4e','#e14f4f','#cc8a3f'][randi(0,3)],r:30,hpMax:24+floor*3,hp:24+floor*3,attack:(5+floor*0.2)*2,defense:3,mass:6,accel:220,maxSpeed:95,boss:true,ranged:true,shotEvery:1.4,pattern:true});
       base.gold = goldValue(base);
       return base;
     }
@@ -423,6 +425,7 @@
         projectiles: [],
         pickups: [],
         spawners: [],
+        swordSwing: null,
         gameOver: false,
       };
       spawnFloor(state);
@@ -467,7 +470,6 @@
       const idir = inputDir();
       p.vx += idir.x * p.accel * dt;
       p.vy += idir.y * p.accel * dt;
-      const speed = len(p.vx,p.vy);
       const drag = idir.x||idir.y ? 0.96 : 0.90;
       p.vx *= drag;
       p.vy *= drag;
@@ -480,7 +482,6 @@
       if (Math.abs(p.vx)+Math.abs(p.vy)>5) p.angle = Math.atan2(p.vy,p.vx);
       moveBody(p, dt);
 
-      // poison + regen
       if (state.t < p.poisonUntil && state.t >= p.poisonTickAt){
         p.hp = Math.max(0, p.hp - 1);
         p.poisonTickAt = state.t + 1.0;
@@ -493,7 +494,6 @@
         }
       }
 
-      // player attacks
       if ((keys.has('j') || keys.has('J')) && p.sword && state.t - p.sword.last > p.sword.cooldown && (p.sword.permanent || p.sword.durability > 0)) {
         p.sword.last = state.t;
         performSwordAttack();
@@ -508,8 +508,13 @@
         });
         if (p.bow.arrows <= 0) p.bow = null;
       }
+      if ((keys.has('l') || keys.has('L')) && p.antidoteMushrooms > 0 && state.t - (p.lastMushroomUse || -99) > 0.25) {
+        p.lastMushroomUse = state.t;
+        p.antidoteMushrooms--;
+        p.poisonUntil = 0;
+        p.poisonTickAt = 0;
+      }
 
-      // enemies
       for(const e of state.enemies){
         if (e.dead) continue;
         e.damageFlash = Math.max(0, e.damageFlash - dt*4);
@@ -549,7 +554,6 @@
         }
       }
 
-      // spawners
       for (const s of state.spawners) {
         if (s.dead) continue;
         if (!s.last) s.last = state.t;
@@ -560,7 +564,6 @@
         }
       }
 
-      // projectiles
       for (const pr of state.projectiles) {
         pr.life -= dt;
         pr.x += pr.vx*dt;
@@ -570,6 +573,7 @@
       state.projectiles = state.projectiles.filter(p=>p.life>0);
 
       handleContacts();
+      handleSwordSwing();
       handleProjectiles();
       handlePickups();
       updateDeaths(dt);
@@ -587,17 +591,39 @@
     }
 
     function performSwordAttack(){
+      state.swordSwing = {
+        start: state.t,
+        duration: 0.18,
+        hitSet: new Set(),
+      };
+    }
+
+    function handleSwordSwing(){
+      const swing = state.swordSwing;
+      if (!swing || !state.player.sword) return;
       const p = state.player;
+      const elapsed = state.t - swing.start;
+      if (elapsed > swing.duration) {
+        state.swordSwing = null;
+        return;
+      }
+      const half = swing.duration / 2;
+      const ratio = elapsed < half ? (elapsed / half) : (1 - (elapsed - half) / half);
+      const reach = 12 + 24 * clamp(ratio, 0, 1);
+      const thickness = 10;
       const dir = {x:Math.cos(p.angle), y:Math.sin(p.angle)};
-      const reach = 110;
-      const thickness = 12;
+
       for(const e of state.enemies){
         if (e.dead) continue;
         const vx = e.x - p.x, vy = e.y - p.y;
         const proj = dot(vx,vy,dir.x,dir.y);
         const perp = Math.abs(vx*dir.y - vy*dir.x);
         if (proj > 0 && proj < reach && perp < thickness + e.r) {
-          damageEnemyBySword(e, p.sword ? p.sword.damage : 1);
+          const key = `e:${state.enemies.indexOf(e)}:${Math.floor(elapsed/0.045)}`;
+          if (!swing.hitSet.has(key)) {
+            swing.hitSet.add(key);
+            damageEnemyBySword(e, p.sword ? p.sword.damage : 1);
+          }
         }
       }
       for (const s of state.spawners) {
@@ -606,12 +632,16 @@
         const proj = dot(vx,vy,dir.x,dir.y);
         const perp = Math.abs(vx*dir.y - vy*dir.x);
         if (proj > 0 && proj < reach && perp < thickness + s.r) {
-          if (state.player.sword && !state.player.sword.permanent) {
-            state.player.sword.durability--;
-            if (state.player.sword.durability <= 0) state.player.sword = makeWeapon('sword', 'wood');
+          const key = `s:${state.spawners.indexOf(s)}:${Math.floor(elapsed/0.045)}`;
+          if (!swing.hitSet.has(key)) {
+            swing.hitSet.add(key);
+            if (state.player.sword && !state.player.sword.permanent) {
+              state.player.sword.durability--;
+              if (state.player.sword.durability <= 0) state.player.sword = makeWeapon('sword', 'wood');
+            }
+            s.hp -= (state.player.sword ? state.player.sword.damage : 1);
+            if (s.hp <= 0) s.dead = true;
           }
-          s.hp -= (state.player.sword ? state.player.sword.damage : 1);
-          if (s.hp <= 0) s.dead = true;
         }
       }
       for (const o of state.dungeon.objects) {
@@ -621,12 +651,16 @@
         const proj = dot(vx,vy,dir.x,dir.y);
         const perp = Math.abs(vx*dir.y - vy*dir.x);
         if (proj > 0 && proj < reach && perp < thickness + Math.max(o.w,o.h)/2) {
-          if (state.player.sword && !state.player.sword.permanent) {
-            state.player.sword.durability--;
-            if (state.player.sword.durability <= 0) state.player.sword = makeWeapon('sword', 'wood');
+          const key = `o:${state.dungeon.objects.indexOf(o)}:${Math.floor(elapsed/0.045)}`;
+          if (!swing.hitSet.has(key)) {
+            swing.hitSet.add(key);
+            if (state.player.sword && !state.player.sword.permanent) {
+              state.player.sword.durability--;
+              if (state.player.sword.durability <= 0) state.player.sword = makeWeapon('sword', 'wood');
+            }
+            o.hp -= (state.player.sword ? state.player.sword.damage : 1);
+            if (o.hp <= 0) o.dead = true;
           }
-          o.hp -= (state.player.sword ? state.player.sword.damage : 1);
-          if (o.hp <= 0) o.dead = true;
         }
       }
     }
@@ -677,12 +711,10 @@
             const totalMass = (a.mass || 1) + (b.mass || 1);
             const pushA = (b.mass || 1) / totalMass;
             const pushB = (a.mass || 1) / totalMass;
-
             a.x -= nx * overlap * 0.5 * pushA;
             a.y -= ny * overlap * 0.5 * pushA;
             b.x += nx * overlap * 0.5 * pushB;
             b.y += ny * overlap * 0.5 * pushB;
-
             a.vx -= nx * 6 * pushA;
             a.vy -= ny * 6 * pushA;
             b.vx += nx * 6 * pushB;
@@ -771,11 +803,16 @@
     function maybeDropWeapon(x,y){
       if (Math.random() < 0.18) {
         const kind = Math.random() < 0.5 ? 'sword' : 'bow';
-        const tier = Math.random() < 0.1 ? 'gold' : Math.random() < 0.35 ? 'silver' : 'copper';
+        const swordTiers = ['copper','iron','silver','flame','lizard','gold'];
+        const bowTiers = ['copper','silver','gold'];
+        const tier = kind === 'sword'
+          ? swordTiers[randi(0, swordTiers.length-1)]
+          : bowTiers[randi(0, bowTiers.length-1)];
         state.pickups.push({x,y,kind,tier,r:8});
       }
       if (Math.random() < 0.12) state.pickups.push({x,y,kind:'heal',r:8});
       if (Math.random() < 0.08) state.pickups.push({x,y,kind:'antidote',r:8});
+      if (Math.random() < 0.08) state.pickups.push({x,y,kind:'mushroom',r:8});
     }
 
     function makeWeapon(kind, tier){
@@ -784,7 +821,10 @@
         const map = {
           wood:{damage:1,durability:Infinity,cooldown:0.4,permanent:true},
           copper:{damage:2,durability:40,cooldown:0.45,permanent:false},
+          iron:{damage:3,durability:52,cooldown:0.43,permanent:false},
           silver:{damage:4,durability:70,cooldown:0.4,permanent:false},
+          flame:{damage:6,durability:84,cooldown:0.38,permanent:false},
+          lizard:{damage:7,durability:98,cooldown:0.37,permanent:false},
           gold:{damage:8,durability:120,cooldown:0.35,permanent:false}
         };
         return {tier:t, ...map[t], max:map[t].durability, last:-9};
@@ -801,6 +841,7 @@
           item.dead = true;
           if (item.kind==='heal') p.hp = Math.min(p.hpMax, p.hp + 5);
           if (item.kind==='antidote') p.poisonUntil = 0;
+          if (item.kind==='mushroom') p.antidoteMushrooms++;
           if (item.kind==='sword') p.sword = makeWeapon('sword', item.tier);
           if (item.kind==='bow') p.bow = makeWeapon('bow', item.tier);
         }
@@ -850,7 +891,6 @@
       ctx.fillStyle = d.theme.wall;
       ctx.fillRect(0,0,w,h);
 
-      // floor tiles
       const minTx = Math.floor(cam.x/TILE)-1, maxTx = Math.floor((cam.x+w)/TILE)+1;
       const minTy = Math.floor(cam.y/TILE)-1, maxTy = Math.floor((cam.y+h)/TILE)+1;
       for(let y=minTy;y<=maxTy;y++){
@@ -862,10 +902,8 @@
         }
       }
 
-      // stairs
       drawStairs(d.stairs.x-cam.x, d.stairs.y-cam.y, state.player.key);
 
-      // objects
       for (const o of d.objects) {
         ctx.save();
         ctx.globalAlpha = o.dead ? Math.max(0,o.alpha) : 1;
@@ -877,7 +915,6 @@
         ctx.restore();
       }
 
-      // spawners
       for (const s of state.spawners) {
         ctx.save();
         ctx.globalAlpha = s.dead ? Math.max(0,s.alpha??1) : 1;
@@ -885,7 +922,6 @@
         ctx.restore();
       }
 
-      // projectiles
       for (const pr of state.projectiles) {
         ctx.fillStyle = pr.color;
         ctx.beginPath();
@@ -893,26 +929,26 @@
         ctx.fill();
       }
 
-      // enemies
       for (const e of state.enemies) drawEnemy(e, cam);
-
-      // pickups
       for (const it of state.pickups) drawPickup(it, cam);
-
-      // player
       drawPlayer(state.player, cam);
 
-      // mini cue for sword line
       const p = state.player;
-      if (p.sword && state.t - p.sword.last < 0.08) {
-        const sx = p.x - cam.x, sy = p.y - cam.y;
-        const dx = Math.cos(p.angle), dy = Math.sin(p.angle);
-        ctx.strokeStyle = tierColor(p.sword.tier);
-        ctx.lineWidth = 8;
-        ctx.beginPath();
-        ctx.moveTo(sx + dx*12, sy + dy*12);
-        ctx.lineTo(sx + dx*110, sy + dy*110);
-        ctx.stroke();
+      if (state.swordSwing && p.sword) {
+        const elapsed = state.t - state.swordSwing.start;
+        if (elapsed <= state.swordSwing.duration) {
+          const half = state.swordSwing.duration / 2;
+          const ratio = elapsed < half ? (elapsed / half) : (1 - (elapsed - half) / half);
+          const reach = 12 + 24 * clamp(ratio, 0, 1);
+          const sx = p.x - cam.x, sy = p.y - cam.y;
+          const dx = Math.cos(p.angle), dy = Math.sin(p.angle);
+          ctx.strokeStyle = tierColor(p.sword.tier);
+          ctx.lineWidth = 8;
+          ctx.beginPath();
+          ctx.moveTo(sx + dx*8, sy + dy*8);
+          ctx.lineTo(sx + dx*reach, sy + dy*reach);
+          ctx.stroke();
+        }
       }
 
       if (state.gameOver) {
@@ -935,6 +971,17 @@
       ctx.rotate(e.angle || 0);
       ctx.fillStyle = e.damageFlash > 0 ? '#ffffff' : e.color;
       drawShape(e.shape, e.r, e.boss, e.poison);
+      if (e.boss) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, e.r * 0.45, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-e.r*0.55, 0);
+        ctx.lineTo(e.r*0.55, 0);
+        ctx.stroke();
+      }
       ctx.restore();
       if ((e.hpBarVisible || e.boss) && !e.dead) drawBar(x-e.r, y-e.r-16, e.r*2, 8, e.hp/e.hpMax);
       if (!e.dead) {
@@ -995,6 +1042,7 @@
       const x = it.x-cam.x, y=it.y-cam.y;
       if (it.kind==='heal') ctx.fillStyle = '#52d96b';
       else if (it.kind==='antidote') ctx.fillStyle = '#58e0c1';
+      else if (it.kind==='mushroom') ctx.fillStyle = '#d95ce3';
       else ctx.fillStyle = tierColor(it.tier);
       ctx.beginPath();
       ctx.arc(x,y,it.r,0,Math.PI*2);
@@ -1002,7 +1050,7 @@
       ctx.fillStyle = '#111';
       ctx.font = '10px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(it.kind==='sword'?'剣':it.kind==='bow'?'弓':it.kind==='heal'?'H':'A', x, y+3);
+      ctx.fillText(it.kind==='sword'?'剣':it.kind==='bow'?'弓':it.kind==='heal'?'H':it.kind==='mushroom'?'茸':'A', x, y+3);
     }
 
     function drawSpawner(x,y,r,ratio){
@@ -1043,8 +1091,9 @@
       ui.goldText.textContent = p.gold;
       ui.keyText.textContent = p.key ? 'あり' : 'なし';
       ui.poisonText.textContent = state.t < p.poisonUntil ? `${Math.ceil(p.poisonUntil-state.t)}秒` : 'なし';
+      ui.mushroomText.textContent = p.antidoteMushrooms;
       ui.weaponText.textContent = [
-        p.sword ? `剣:${p.sword.tier}` : '剣なし',
+        p.sword ? `剣:${p.sword.tier}` : '剣:wood',
         p.bow ? `弓:${p.bow.tier}` : '弓なし'
       ].join(' / ');
       ui.swordText.textContent = p.sword ? (p.sword.permanent ? '∞' : `${p.sword.durability}/${p.sword.max}`) : '-';
