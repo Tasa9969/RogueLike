@@ -201,7 +201,7 @@
       const now = audioCtx.currentTime;
       const master = audioCtx.createGain();
       master.connect(audioCtx.destination);
-      master.gain.value = 0.445;
+      master.gain.value = 1.0;
 
       const cfg = {
         sword: {type:'triangle', freq:220, end:440, dur:0.07, noise:0.015},
