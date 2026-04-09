@@ -1,4 +1,4 @@
-<!-- ver. 0.3.1 -->
+<!-- ver. 0.3.3 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -174,7 +174,7 @@
         <div><strong>操作</strong></div>
         <div>移動: 矢印キー / WASD / テンキー風 8方向</div>
         <div>剣: J（常備の木の剣あり）</div>
-        <div>爆弾: K（silverは爆発半径2倍、goldは4倍）</div>
+        <div>爆弾: K（押すたびに1発、複数同時存在可）（silverは爆発半径2倍、goldは4倍）</div>
         <div>毒消しキノコ: L</div>
         <div>再開始: R</div>
       </div>
@@ -192,7 +192,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.3.1</div>
+  <div id="versionTag">ver. 0.3.3</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -510,6 +510,7 @@
       if (lower === 'r') init();
       keys.add(e.key);
       if (lower === 'j' && !e.repeat && state && !state.gameOver) startSwordAttack();
+      if (lower === 'k' && !e.repeat && state && !state.gameOver) fireBombAttack();
       if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
     });
     addEventListener('keyup', e => {
@@ -1098,25 +1099,7 @@
 
       // 剣攻撃は keydown / keyup で開始と戻りを制御する。
       // 弓攻撃。弾を1発生成し、残弾を消費。
-      if ((keys.has('k') || keys.has('K')) && p.bow && state.t - p.bow.last > p.bow.cooldown && p.bow.arrows > 0) {
-        p.bow.last = state.t;
-        p.bow.arrows--;
-        const dir = {x:Math.cos(p.angle), y:Math.sin(p.angle)};
-        const blastRadius = state.player.r * 2;
-        state.projectiles.push({
-          from:'player',
-          kind:'bomb',
-          x:p.x+dir.x*18, y:p.y+dir.y*18,
-          vx:dir.x*p.bow.speed, vy:dir.y*p.bow.speed,
-          r:7,
-          damage:p.bow.damage * 3,
-          blastRadius,
-          life:2.1,
-          color:tierColor(p.bow.tier)
-        });
-        if (p.bow.arrows <= 0) p.bow = null;
-        playSfx('bow');
-      }
+
       // 毒消しキノコ。毒状態を即解除。
       if ((keys.has('l') || keys.has('L')) && p.antidoteMushrooms > 0 && state.t - (p.lastMushroomUse || -99) > 0.25) {
         p.lastMushroomUse = state.t;
@@ -1302,6 +1285,34 @@
     }
 
     // 剣の出し始め。Jを押した瞬間だけ呼ばれ、押しっぱなしで最長位置に固定される。
+    function fireBombAttack(){
+      const p = state && state.player;
+      if (!state || state.gameOver || !p || !p.bow || p.bow.arrows <= 0) return;
+      if (state.t - p.bow.last <= p.bow.cooldown) return;
+
+      p.bow.last = state.t;
+      p.bow.arrows--;
+
+      const dir = {x:Math.cos(p.angle), y:Math.sin(p.angle)};
+      const blastRadius = (state.player.r * 4) * bombRadiusMultiplier(p.bow.tier);
+
+      // 既に画面内に爆弾があっても関係なく、新しい爆弾を追加する
+      state.projectiles.push({
+        from:'player',
+        kind:'bomb',
+        x:p.x+dir.x*18, y:p.y+dir.y*18,
+        vx:dir.x*p.bow.speed, vy:dir.y*p.bow.speed,
+        r:7,
+        damage:p.bow.damage * 3,
+        blastRadius,
+        life:2.1,
+        color:tierColor(p.bow.tier)
+      });
+
+      if (p.bow.arrows <= 0) p.bow = null;
+      playSfx('bow');
+    }
+
     function startSwordAttack(){
       const p = state.player;
       if (!p.sword || state.swordSwing) return;
