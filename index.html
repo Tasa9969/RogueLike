@@ -1,4 +1,4 @@
-<!-- ver. 0.2.1 -->
+<!-- ver. 0.2.2 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -175,7 +175,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.2.1</div>
+  <div id="versionTag">ver. 0.2.2</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -503,8 +503,52 @@
     function goldValue(e){
       return Math.max(1, Math.round(
         e.hpMax*0.25 + e.attack*0.9 + e.defense*0.8 + e.maxSpeed*0.01 + e.accel*0.005 +
-        (e.type==='turret'?2:0) + (e.poison?1:0) + (e.ranged?1:0) + (e.boss?5:0)
+        (e.ranged?1.5:0) + (e.poison?1:0) + (e.boss?5:0)
       ));
+    }
+
+    // 添付の敵一覧から、この試作に相性が良い6種類を抽出して使用する。
+    // 後半ほど強くなり、50階で最後の通常敵ドラゴンが出るように段階解放する。
+    const ENEMY_PROFILES = {
+      slime: {
+        name:'スライム', shape:'circle', color:'#d7ef79', r:13, ai:'erratic',
+        hp:15, attack:10, defense:12, mass:1.4, accel:160, maxSpeed:70
+      },
+      goblin: {
+        name:'ゴブリン', shape:'triangle', color:'#7a9b40', r:14, ai:'intercept',
+        hp:25, attack:15, defense:8, mass:1.0, accel:340, maxSpeed:150
+      },
+      kobold: {
+        name:'コボルド', shape:'square', color:'#9a7a58', r:15, ai:'flee', ranged:true, shotEvery:1.8,
+        hp:20, attack:12, defense:10, mass:1.1, accel:260, maxSpeed:135
+      },
+      skeleton: {
+        name:'スケルトン', shape:'hex', color:'#d9d9d0', r:18, ai:'chase',
+        hp:40, attack:20, defense:15, mass:2.2, accel:220, maxSpeed:95
+      },
+      lich: {
+        name:'リッチ', shape:'diamond', color:'#5a2d7c', r:20, ai:'flee', ranged:true, shotEvery:1.15,
+        hp:150, attack:85, defense:40, mass:1.8, accel:210, maxSpeed:105
+      },
+      dragon: {
+        name:'ドラゴン', shape:'hex', color:'#a33a2a', r:26, ai:'intercept', ranged:true, shotEvery:1.35,
+        hp:1000, attack:100, defense:80, mass:5.5, accel:250, maxSpeed:175
+      }
+    };
+
+    // 50階で最後の通常敵ドラゴンが自然出現するように配分。
+    function availableEnemyTypesForFloor(floor) {
+      if (floor >= 50) return ['slime','goblin','kobold','skeleton','lich','dragon'];
+      if (floor >= 38) return ['slime','goblin','kobold','skeleton','lich'];
+      if (floor >= 26) return ['slime','goblin','kobold','skeleton'];
+      if (floor >= 16) return ['slime','goblin','kobold'];
+      if (floor >= 8) return ['slime','goblin'];
+      return ['slime'];
+    }
+
+    function spawnerEnemyTypesForFloor(floor) {
+      const pool = availableEnemyTypesForFloor(floor).filter(t => t !== 'dragon');
+      return pool.length ? pool : ['slime'];
     }
 
     function createDungeon(floor){
@@ -600,11 +644,11 @@
       const rooms = state.dungeon.rooms;
 
       function addEnemy(room, typeOverride) {
-        const types = ['melee','tank','poisoner','charger','ranged','turret'];
-        const type = typeOverride || types[randi(0, Math.min(types.length-1, 1 + Math.floor(state.floor/2)))];
+        const types = availableEnemyTypesForFloor(state.floor);
+        const type = typeOverride || types[randi(0, types.length-1)];
         const x = (room.cx + rand(-room.w/3, room.w/3))*TILE;
         const y = (room.cy + rand(-room.h/3, room.h/3))*TILE;
-        enemies.push(makeEnemy(type,x,y,state.floor));
+        enemies.push(makeEnemy(type, x, y, state.floor));
       }
 
       for(const room of rooms.slice(1,-1)){
@@ -641,19 +685,51 @@
     }
 
     function makeEnemy(type,x,y,floor){
-      const bossShapes = ['hex','circle','diamond','triangle'];
       const base = {
         type, x,y,vx:0,vy:0,angle:0,lastContact:0,lastShot:0,
-        damageFlash:0, dead:false, deathAnim:0, ai:['chase','intercept','erratic','flee'][randi(0,3)],
-        hpBarVisible:false,
+        damageFlash:0, dead:false, deathAnim:0, hpBarVisible:false,
       };
-      if (type==='melee') Object.assign(base,{shape:'circle',color:'#d34545',r:14,hpMax:6+floor, hp:6+floor, attack:(3+floor*0.1)*2, defense:0, mass:1, accel:420, maxSpeed:140});
-      if (type==='tank') Object.assign(base,{shape:'square',color:'#4f7bd9',r:18,hpMax:10+floor*1.4,hp:10+floor*1.4,attack:(2+floor*0.1)*2,defense:2,mass:3,accel:240,maxSpeed:90});
-      if (type==='poisoner') Object.assign(base,{shape:'circle',color:'#2cbf65',r:14,hpMax:8+floor,hp:8+floor,attack:4,defense:1,mass:1.2,accel:300,maxSpeed:120,poison:true});
-      if (type==='charger') Object.assign(base,{shape:'triangle',color:'#e0c13f',r:13,hpMax:7+floor,hp:7+floor,attack:6,defense:0,mass:1,accel:520,maxSpeed:180});
-      if (type==='ranged') Object.assign(base,{shape:'diamond',color:'#9b5de5',r:15,hpMax:8+floor,hp:8+floor,attack:4,defense:0,mass:1,accel:260,maxSpeed:100,ranged:true,shotEvery:1.6});
-      if (type==='turret') Object.assign(base,{shape:'square',color:'#d14949',r:17,hpMax:9+floor,hp:9+floor,attack:6,defense:1,mass:999,accel:0,maxSpeed:0,turret:true,shotEvery:1.2,targeting:Math.random()<0.5?'direct':'fixed',fixedAngle:rand(0,Math.PI*2)});
-      if (type==='boss') Object.assign(base,{shape:bossShapes[randi(0,bossShapes.length-1)],color:['#f06d4f','#db7d4e','#e14f4f','#cc8a3f'][randi(0,3)],r:30,hpMax:24+floor*3,hp:24+floor*3,attack:(5+floor*0.2)*2,defense:3,mass:6,accel:220,maxSpeed:95,boss:true,ranged:true,shotEvery:1.4,pattern:true});
+
+      if (type === 'boss') {
+        const bossBase = ENEMY_PROFILES.dragon;
+        Object.assign(base, {
+          name: '古竜',
+          shape: bossBase.shape,
+          color: '#c43c2f',
+          r: bossBase.r * 2,
+          hpMax: Math.round(bossBase.hp * 2 + floor * 40),
+          hp: Math.round(bossBase.hp * 2 + floor * 40),
+          attack: Math.round(bossBase.attack * 2),
+          defense: Math.round(bossBase.defense * 2),
+          mass: bossBase.mass * 2.4,
+          accel: bossBase.accel * 0.92,
+          maxSpeed: bossBase.maxSpeed * 1.12,
+          ai: 'intercept',
+          boss: true,
+          ranged: true,
+          shotEvery: 0.95,
+          pattern: true
+        });
+      } else {
+        const profile = ENEMY_PROFILES[type] || ENEMY_PROFILES.slime;
+        const growth = 1 + Math.max(0, floor - 1) * 0.035;
+        Object.assign(base, {
+          name: profile.name,
+          shape: profile.shape,
+          color: profile.color,
+          r: profile.r,
+          hpMax: Math.round(profile.hp * growth),
+          hp: Math.round(profile.hp * growth),
+          attack: Math.max(1, Math.round(profile.attack * (1 + Math.max(0, floor - 1) * 0.018))),
+          defense: Math.max(0, Math.round(profile.defense * (1 + Math.max(0, floor - 1) * 0.012))),
+          mass: profile.mass,
+          accel: profile.accel,
+          maxSpeed: profile.maxSpeed,
+          ai: profile.ai,
+          ranged: !!profile.ranged,
+          shotEvery: profile.shotEvery || 1.6
+        });
+      }
       base.gold = goldValue(base);
       return base;
     }
@@ -845,7 +921,7 @@
           e.lastShot = state.t;
           const shotAngle = angleTo(e.x,e.y,p.x,p.y);
           const v = e.boss ? 260 : 230;
-          state.projectiles.push({from:'enemy', x:e.x+Math.cos(shotAngle)*16, y:e.y+Math.sin(shotAngle)*16, vx:Math.cos(shotAngle)*v, vy:Math.sin(shotAngle)*v, r:e.boss?7:5, damage:e.boss?3:1, life:3, color:e.color, poison:e.type==='poisoner'});
+          state.projectiles.push({from:'enemy', x:e.x+Math.cos(shotAngle)*16, y:e.y+Math.sin(shotAngle)*16, vx:Math.cos(shotAngle)*v, vy:Math.sin(shotAngle)*v, r:e.boss?7:5, damage:e.boss?3:1, life:3, color:e.color, poison:false});
         }
       }
 
@@ -860,7 +936,8 @@
           if (near < cap) {
             const burst = Math.min(s.burst || 2, cap - near);
             for (let i = 0; i < burst; i++) {
-              state.enemies.push(makeEnemy(['melee','poisoner','charger','ranged'][randi(0,3)], s.x+rand(-28,28), s.y+rand(-28,28), state.floor));
+              const pool = spawnerEnemyTypesForFloor(state.floor);
+              state.enemies.push(makeEnemy(pool[randi(0, pool.length-1)], s.x+rand(-28,28), s.y+rand(-28,28), state.floor));
             }
             addPastelExplosion(s.x, s.y, 0.85);
           }
