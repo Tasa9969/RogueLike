@@ -1,4 +1,4 @@
-<!-- ver. 0.2.5 -->
+<!-- ver. 0.2.6 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -99,6 +99,23 @@
       font-size: 42px;
       opacity: 0;
       transition: opacity 200ms;
+      text-align: center;
+      white-space: pre-line;
+      z-index: 30;
+    }
+    #overlay .overlayMain {
+      display: block;
+      line-height: 1.0;
+    }
+    #overlay .overlaySub {
+      display: block;
+      margin-top: 10px;
+      font-size: 22px;
+      font-weight: 700;
+    }
+    #overlay.gameOver {
+      color: #ff4b4b;
+      text-shadow: 0 0 8px rgba(0,0,0,0.9), 0 0 20px rgba(160,0,0,0.55);
     }
     #versionTag {
       position: fixed;
@@ -175,7 +192,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.2.5</div>
+  <div id="versionTag">ver. 0.2.6</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -282,16 +299,28 @@
       playSfx(scale > 1.2 ? 'explode' : 'hit');
     }
 
+    function addFloatingText(x, y, text, color = '#ffffff', scale = 1) {
+      state.effects.push({
+        type:'text',
+        x, y,
+        time:0,
+        duration:0.9,
+        text,
+        color,
+        scale,
+      });
+    }
+
     // フロア切り替え時の全画面フェード。
     // 前半で白く被せ、後半でゆっくり抜く。
     function addFloorTransition(){
       floorTransition.style.transition = 'none';
       floorTransition.style.opacity = '0';
       void floorTransition.offsetWidth;
-      floorTransition.style.transition = 'opacity 180ms ease';
+      floorTransition.style.transition = 'opacity 360ms ease';
       floorTransition.style.opacity = '1';
       setTimeout(() => {
-        floorTransition.style.transition = 'opacity 480ms ease';
+        floorTransition.style.transition = 'opacity 960ms ease';
         floorTransition.style.opacity = '0';
       }, 170);
     }
@@ -306,25 +335,40 @@
     // 現在は爆発リングのみ。screen合成でふんわり明るく見せる。
     function drawEffects(cam){
       for (const fx of state.effects) {
-        if (fx.type !== 'explosion') continue;
-        const t = fx.time / fx.duration;
-        const pulse = 1 + t * 2.6;
-        const r = fx.radius * pulse;
-        const color = fx.palette[Math.floor(t * 18) % fx.palette.length];
-        ctx.save();
-        ctx.globalCompositeOperation = 'screen';
-        ctx.globalAlpha = Math.max(0, 0.48 * (1 - t));
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 4 + (1 - t) * 8;
-        ctx.beginPath();
-        ctx.arc(fx.x - cam.x, fx.y - cam.y, r, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = Math.max(0, 0.22 * (1 - t));
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(fx.x - cam.x, fx.y - cam.y, r * 0.6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+        if (fx.type === 'explosion') {
+          const t = fx.time / fx.duration;
+          const pulse = 1 + t * 2.6;
+          const r = fx.radius * pulse;
+          const color = fx.palette[Math.floor(t * 18) % fx.palette.length];
+          ctx.save();
+          ctx.globalCompositeOperation = 'screen';
+          ctx.globalAlpha = Math.max(0, 0.48 * (1 - t));
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 4 + (1 - t) * 8;
+          ctx.beginPath();
+          ctx.arc(fx.x - cam.x, fx.y - cam.y, r, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = Math.max(0, 0.22 * (1 - t));
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(fx.x - cam.x, fx.y - cam.y, r * 0.6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+          continue;
+        }
+        if (fx.type === 'text') {
+          const t = fx.time / fx.duration;
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, 1 - t);
+          ctx.fillStyle = fx.color;
+          ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+          ctx.lineWidth = 4;
+          ctx.font = `${Math.floor(18 * (fx.scale || 1))}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.strokeText(fx.text, fx.x - cam.x, fx.y - cam.y - t * 28);
+          ctx.fillText(fx.text, fx.x - cam.x, fx.y - cam.y - t * 28);
+          ctx.restore();
+        }
       }
     }
 
@@ -455,10 +499,23 @@
       return choices[randi(0, choices.length-1)];
     }
 
-    function showOverlay(text) {
-      overlay.textContent = text;
+    let overlayHideTimer = null;
+    function showOverlay(text, options = {}) {
+      const { sticky = false, colorClass = '', subtext = '', duration = 900 } = options;
+      if (overlayHideTimer) clearTimeout(overlayHideTimer);
+      overlay.className = colorClass || '';
+      if (subtext) {
+        overlay.innerHTML = `<div><span class="overlayMain">${text}</span><span class="overlaySub">${subtext}</span></div>`;
+      } else {
+        overlay.textContent = text;
+      }
       overlay.style.opacity = '1';
-      setTimeout(() => overlay.style.opacity = '0', 900);
+      if (!sticky) {
+        overlayHideTimer = setTimeout(() => {
+          overlay.style.opacity = '0';
+          overlay.className = '';
+        }, duration);
+      }
     }
 
     function createPlayer(){
@@ -722,6 +779,7 @@
       p.y = state.dungeon.start.y;
       p.vx = p.vy = 0;
       p.key = false;
+      p.swordInputHeld = false;
       const enemies = [];
       const projectiles = [];
       const pickups = [];
@@ -847,6 +905,8 @@
     }
 
     function init(){
+      overlay.style.opacity = '0';
+      overlay.className = '';
       state = {
         floor: 1,
         t: 0,
@@ -1168,7 +1228,7 @@
       if (p.hp <= 0) {
         state.gameOver = true;
         addPastelExplosion(p.x, p.y, 2.1);
-        showOverlay('GAME OVER');
+        showOverlay('GAME OVER', { sticky:true, colorClass:'gameOver', subtext:'PUSH R to RESTART' });
       }
       uiUpdate();
     }
@@ -1322,6 +1382,22 @@
           }
         }
       }
+      for (let i = 0; i < state.projectiles.length; i++) {
+        const pr = state.projectiles[i];
+        if (!pr || pr.life <= 0 || pr.from !== 'enemy') continue;
+        const vx = pr.x - p.x, vy = pr.y - p.y;
+        const proj = dot(vx,vy,dir.x,dir.y);
+        const perp = Math.abs(vx*dir.y - vy*dir.x);
+        if (proj > 0 && proj < reach && perp < thickness + pr.r + 3) {
+          const key = `p:${i}:${swing.phase}:${phaseBucket}`;
+          if (!swing.hitSet.has(key)) {
+            swing.hitSet.add(key);
+            pr.life = -1;
+            addPastelExplosion(pr.x, pr.y, 0.9);
+            playSfx('hit');
+          }
+        }
+      }
     }
 
     function isInFront(player, enemy){
@@ -1411,6 +1487,7 @@
     function handleProjectiles(){
       const p = state.player;
       for(const pr of state.projectiles){
+        if (pr.life <= 0) continue;
         if (pr.from==='enemy') {
           if (dist(pr,p) < pr.r + p.r) {
             damagePlayer(pr.damage, pr.poison ? rand(5,20) : 0);
@@ -1426,13 +1503,14 @@
               break;
             }
           }
-          // 巣のスポーン処理。近くに敵が多すぎる場合は増援を抑制する。
-      for (const s of state.spawners) {
+          if (pr.life <= 0) continue;
+          for (const s of state.spawners) {
             if (!s.dead && dist(pr,s) < pr.r + s.r) {
               s.hp -= pr.damage;
               addPastelExplosion(pr.x, pr.y, 1.05);
               pr.life = -1;
               if (s.hp <= 0) s.dead = true;
+              break;
             }
           }
         }
@@ -1537,11 +1615,30 @@
         if (item.dead) continue;
         if (dist(item,p) < p.r + item.r + 6) {
           item.dead = true;
-          if (item.kind==='heal') p.hp = Math.min(p.hpMax, p.hp + (item.healAmount || 5));
+          if (item.kind==='heal') {
+            const beforeHp = p.hp;
+            p.hp = Math.min(p.hpMax, p.hp + (item.healAmount || 5));
+            const gained = Math.max(0, Math.round(p.hp - beforeHp));
+            if (gained > 0) addFloatingText(p.x, p.y - 18, `+${gained} HP`, '#98ffb0', 1 + Math.log2(item.mult || 1) * 0.15);
+          }
           if (item.kind==='antidote') p.poisonUntil = 0;
           if (item.kind==='mushroom') p.antidoteMushrooms++;
           if (item.kind==='sword') p.sword = makeWeapon('sword', item.tier);
-          if (item.kind==='bow') p.bow = makeWeapon('bow', item.tier);
+          if (item.kind==='bow') {
+            const pickupBow = makeWeapon('bow', item.tier);
+            if (p.bow) {
+              p.bow.arrows += pickupBow.arrows;
+              p.bow.max += pickupBow.max;
+              if (pickupBow.damage > p.bow.damage) {
+                p.bow.tier = pickupBow.tier;
+                p.bow.damage = pickupBow.damage;
+                p.bow.speed = pickupBow.speed;
+                p.bow.cooldown = pickupBow.cooldown;
+              }
+            } else {
+              p.bow = pickupBow;
+            }
+          }
           playSfx('pickup');
         }
       }
@@ -1578,7 +1675,7 @@
       const p = state.player;
       const stairs = state.dungeon.stairs;
       if (dist(p,stairs) < 26 && p.key && state.floorChangingUntil <= state.t) {
-        state.floorChangingUntil = state.t + 0.55;
+        state.floorChangingUntil = state.t + 1.10;
         addFloorTransition();
         playSfx('floor');
         showOverlay('Descending...');
