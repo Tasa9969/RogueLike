@@ -1,4 +1,4 @@
-<!-- ver. 0.2.0 -->
+<!-- ver. 0.2.1 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -175,7 +175,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.2.0</div>
+  <div id="versionTag">ver. 0.2.1</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -698,6 +698,46 @@
       if (canMoveCircle(body.x, ny, body.r)) body.y = ny; else body.vy *= -0.18;
     }
 
+    // 指定位置が壁や障害物に埋まる場合、近場の通行可能位置を探して返す。
+    // 敵同士の押し合いで壁内に押し込まれた時の復帰用。
+    function findNearestFreeCirclePosition(x, y, r, maxRadius = TILE * 2.5, step = 6) {
+      if (canMoveCircle(x, y, r)) return {x, y};
+      for (let radius = step; radius <= maxRadius; radius += step) {
+        const samples = Math.max(8, Math.ceil(radius * 1.6));
+        for (let i = 0; i < samples; i++) {
+          const a = (i / samples) * Math.PI * 2;
+          const tx = x + Math.cos(a) * radius;
+          const ty = y + Math.sin(a) * radius;
+          if (canMoveCircle(tx, ty, r)) return {x: tx, y: ty};
+        }
+      }
+      return null;
+    }
+
+    // 壁に埋まった敵を安全な位置へ押し戻す。
+    function snapEnemyOutOfWall(enemy, fallbackX, fallbackY) {
+      if (canMoveCircle(enemy.x, enemy.y, enemy.r)) return;
+      const rescued = findNearestFreeCirclePosition(enemy.x, enemy.y, enemy.r)
+        || findNearestFreeCirclePosition(fallbackX, fallbackY, enemy.r, TILE * 3, 4);
+      if (rescued) {
+        enemy.x = rescued.x;
+        enemy.y = rescued.y;
+      } else {
+        enemy.x = fallbackX;
+        enemy.y = fallbackY;
+      }
+      enemy.vx *= -0.2;
+      enemy.vy *= -0.2;
+    }
+
+    // 押し合い解決後の敵が壁に残っていないかを毎フレーム確認する。
+    function rescueEnemiesStuckInWalls() {
+      for (const e of state.enemies) {
+        if (!e || e.dead) continue;
+        snapEnemyOutOfWall(e, e.x, e.y);
+      }
+    }
+
     function inputDir(){
       let x=0,y=0;
       for(const k of keys){
@@ -1048,10 +1088,20 @@
             const totalMass = (a.mass || 1) + (b.mass || 1);
             const pushA = (b.mass || 1) / totalMass;
             const pushB = (a.mass || 1) / totalMass;
+            const prevAX = a.x;
+            const prevAY = a.y;
+            const prevBX = b.x;
+            const prevBY = b.y;
+
             a.x -= nx * overlap * 0.5 * pushA;
             a.y -= ny * overlap * 0.5 * pushA;
             b.x += nx * overlap * 0.5 * pushB;
             b.y += ny * overlap * 0.5 * pushB;
+
+            // 分離後に壁へめり込んだ個体は、近い空き位置へ救出する。
+            snapEnemyOutOfWall(a, prevAX, prevAY);
+            snapEnemyOutOfWall(b, prevBX, prevBY);
+
             a.vx -= nx * 6 * pushA;
             a.vy -= ny * 6 * pushA;
             b.vx += nx * 6 * pushB;
@@ -1059,6 +1109,8 @@
           }
         }
       }
+
+      rescueEnemiesStuckInWalls();
 
       // 巣のスポーン処理。近くに敵が多すぎる場合は増援を抑制する。
       for (const s of state.spawners) {
