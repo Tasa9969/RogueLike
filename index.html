@@ -1,3 +1,4 @@
+<!-- ver. 0.1.7 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -163,7 +164,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.1.5</div>
+  <div id="versionTag">ver. 0.1.7</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -186,6 +187,11 @@
       buffs: document.getElementById('buffs'),
     };
 
+    // ------------------------------
+    // Audio / SE
+    // ------------------------------
+    // ブラウザの自動再生制限対策。
+    // 最初のキー入力 or クリックをきっかけに AudioContext を有効化する。
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     let audioUnlocked = false;
     function unlockAudio() {
@@ -196,13 +202,19 @@
     addEventListener('pointerdown', unlockAudio, { once: true });
     addEventListener('keydown', unlockAudio, { once: true });
 
+    // 効果音をその場で合成して鳴らす。
+    // kind を差し替えるとアクションごとの印象を変えられる。
     function playSfx(kind){
       if (!audioUnlocked) return;
       const now = audioCtx.currentTime;
       const master = audioCtx.createGain();
       master.connect(audioCtx.destination);
+      // 全SEの最終音量。ここがいちばん触る頻度が高い。
+      // 目安: 0.05 だとかなり小さめ、0.2 前後で聞きやすい。
       master.gain.value = 1.0;
 
+      // 各SEの音色パラメータ。
+      // freq: 開始周波数 / end: 終了周波数 / dur: 長さ(秒) / noise: ノイズ量
       const cfg = {
         sword: {type:'triangle', freq:220, end:440, dur:0.07, noise:0.015},
         bow: {type:'square', freq:520, end:260, dur:0.08, noise:0.008},
@@ -244,6 +256,8 @@
       }
     }
 
+    // 弾ヒットや死亡時のパステル爆発エフェクトを追加。
+    // scale を上げると半径もSEの派手さも大きくなる。
     function addPastelExplosion(x,y,scale=1){
       const palette = ['#ffd6e7','#d6f6ff','#f7e2ff','#fff0c9','#d8ffd6','#e3dcff'];
       state.effects.push({
@@ -257,6 +271,8 @@
       playSfx(scale > 1.2 ? 'explode' : 'hit');
     }
 
+    // フロア切り替え時の全画面フェード。
+    // 前半で白く被せ、後半でゆっくり抜く。
     function addFloorTransition(){
       floorTransition.style.transition = 'none';
       floorTransition.style.opacity = '0';
@@ -269,11 +285,14 @@
       }, 170);
     }
 
+    // 一時エフェクトの寿命管理。
     function updateEffects(dt){
       for (const fx of state.effects) fx.time += dt;
       state.effects = state.effects.filter(fx => fx.time < fx.duration);
     }
 
+    // 一時エフェクトの描画。
+    // 現在は爆発リングのみ。screen合成でふんわり明るく見せる。
     function drawEffects(cam){
       for (const fx of state.effects) {
         if (fx.type !== 'explosion') continue;
@@ -298,18 +317,42 @@
       }
     }
 
+    // 描画の基準解像度。ウィンドウが広い/狭い時も、この基準をもとに拡大縮小する。
+    // 数字を大きくすると全体が少し小さく見え、小さくすると大きく見える。
+    const BASE_VIEW_W = 1280;
+    const BASE_VIEW_H = 720;
+
+    // 実ウィンドウサイズに合わせてキャンバスの内部解像度と表示倍率を更新する。
+    // renderScale: 画面への拡大率
+    // viewWidth/viewHeight: ゲーム世界を何ピクセル分見るかの論理サイズ
+    let renderScale = 1;
+    let viewWidth = BASE_VIEW_W;
+    let viewHeight = BASE_VIEW_H;
+
     function resize() {
       const rect = canvas.getBoundingClientRect();
       canvas.width = Math.floor(rect.width * devicePixelRatio);
       canvas.height = Math.floor(rect.height * devicePixelRatio);
+
+      // ウィンドウに収まる範囲で等倍比率を維持して拡大縮小する
+      renderScale = Math.max(0.5, Math.min(rect.width / BASE_VIEW_W, rect.height / BASE_VIEW_H));
+
+      // ゲーム内の見える範囲。小さい画面では少し広めに見せ、大きい画面では拡大気味になる。
+      viewWidth = rect.width / renderScale;
+      viewHeight = rect.height / renderScale;
+
+      // 以降の描画は CSS ピクセル基準で行う。実際の拡大率は draw() で毎フレーム適用する。
       ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     }
     addEventListener('resize', resize);
     resize();
 
-    const TILE = 32;
-    const CONTACT_INTERVAL = 0.2;
-    const FLOOR_HEAL_RATIO = 0.25;
+    // ------------------------------
+    // ゲームバランス調整パラメータ
+    // ------------------------------
+    const TILE = 32;                 // 1マスのピクセルサイズ
+    const CONTACT_INTERVAL = 0.2;    // 接触ダメージの再発生間隔(秒)
+    const FLOOR_HEAL_RATIO = 0.25;   // 階段到達時の回復割合
     const keys = new Set();
     const dirs = {
       ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0],
@@ -484,6 +527,8 @@
       }
     }
 
+    // フロア生成後の実体配置。
+    // 敵、飛び道具、アイテム、巣をここで初期化する。
     function spawnFloor(state){
       state.dungeon = createDungeon(state.floor);
       const p = state.player;
@@ -509,7 +554,20 @@
         const c = randi(1, 2 + Math.floor(state.floor/3));
         for(let i=0;i<c;i++) addEnemy(room);
         if (Math.random()<0.2 + state.floor*0.015) {
-          spawners.push({x:room.cx*TILE,y:room.cy*TILE,r:18,hp:16,maxHp:16,defense:1,spawnEvery:Math.max(2.8, 5.2 - state.floor*0.12),last:0,dead:false,burst:2 + Math.floor(state.floor/4)});
+          spawners.push({
+            x:room.cx*TILE,
+            y:room.cy*TILE,
+            r:18,
+            hp:16,
+            maxHp:16,
+            defense:1,
+            // 巣が敵を吐き出す間隔。小さいほど高圧。
+            spawnEvery:Math.max(2.8, 5.2 - state.floor*0.12),
+            last:0,
+            dead:false,
+            // 1回のスポーンでまとめて出現する数。
+            burst:2 + Math.floor(state.floor/4)
+          });
         }
       }
 
@@ -593,9 +651,12 @@
       return norm(x,y);
     }
 
+    // 毎フレームのメイン更新。
+    // 入力、移動、毒、攻撃、敵AI、巣、飛び道具、死亡処理までここで進める。
     function update(dt){
       if (state.gameOver) return;
       state.t += dt;
+      // フロア遷移中は大半のロジックを止めて演出優先にする。
       if (state.floorChangingUntil > state.t) {
         updateEffects(dt);
         uiUpdate();
@@ -629,15 +690,18 @@
         }
       }
 
+      // 剣攻撃。攻撃判定そのものは performSwordAttack / handleSwordSwing 側で処理。
       if ((keys.has('j') || keys.has('J')) && p.sword && state.t - p.sword.last > p.sword.cooldown && (p.sword.permanent || p.sword.durability > 0)) {
         p.sword.last = state.t;
         performSwordAttack();
         playSfx('sword');
       }
+      // 弓攻撃。弾を1発生成し、残弾を消費。
       if ((keys.has('k') || keys.has('K')) && p.bow && state.t - p.bow.last > p.bow.cooldown && p.bow.arrows > 0) {
         p.bow.last = state.t;
         p.bow.arrows--;
-        const dir = {x:Math.cos(p.angle), y:Math.sin(p.angle)};
+        // プレイヤー正面方向に細長い当たり判定を出す。
+      const dir = {x:Math.cos(p.angle), y:Math.sin(p.angle)};
         state.projectiles.push({
           from:'player', x:p.x+dir.x*18, y:p.y+dir.y*18, vx:dir.x*p.bow.speed, vy:dir.y*p.bow.speed,
           r:4, damage:p.bow.damage, life:2.4, color:tierColor(p.bow.tier)
@@ -645,6 +709,7 @@
         if (p.bow.arrows <= 0) p.bow = null;
         playSfx('bow');
       }
+      // 毒消しキノコ。毒状態を即解除。
       if ((keys.has('l') || keys.has('L')) && p.antidoteMushrooms > 0 && state.t - (p.lastMushroomUse || -99) > 0.25) {
         p.lastMushroomUse = state.t;
         p.antidoteMushrooms--;
@@ -692,6 +757,7 @@
         }
       }
 
+      // 巣のスポーン処理。近くに敵が多すぎる場合は増援を抑制する。
       for (const s of state.spawners) {
         if (s.dead) continue;
         if (!s.last) s.last = state.t;
@@ -709,6 +775,7 @@
         }
       }
 
+      // 飛び道具
       for (const pr of state.projectiles) {
         pr.life -= dt;
         pr.x += pr.vx*dt;
@@ -737,6 +804,8 @@
       return state.enemies.some(e => !e.dead && dist(e,p) < 110);
     }
 
+    // 剣の振り始めを記録する。
+    // 実際の当たり判定は短時間だけ前方に伸びる線分として扱う。
     function performSwordAttack(){
       state.swordSwing = {
         start: state.t,
@@ -755,6 +824,7 @@
         return;
       }
 
+      // プレイヤー正面方向に細長い当たり判定を出す。
       const dir = {x:Math.cos(p.angle), y:Math.sin(p.angle)};
       const half = swing.duration / 2;
       const ratio = elapsed < half ? (elapsed / half) : (1 - (elapsed - half) / half);
@@ -783,6 +853,7 @@
           }
         }
       }
+      // 巣のスポーン処理。近くに敵が多すぎる場合は増援を抑制する。
       for (const s of state.spawners) {
         if (s.dead) continue;
         const vx = s.x - p.x, vy = s.y - p.y;
@@ -880,6 +951,7 @@
         }
       }
 
+      // 巣のスポーン処理。近くに敵が多すぎる場合は増援を抑制する。
       for (const s of state.spawners) {
         if (s.dead) continue;
         if (dist(p,s) < p.r + s.r) {
@@ -911,7 +983,8 @@
               break;
             }
           }
-          for (const s of state.spawners) {
+          // 巣のスポーン処理。近くに敵が多すぎる場合は増援を抑制する。
+      for (const s of state.spawners) {
             if (!s.dead && dist(pr,s) < pr.r + s.r) {
               s.hp -= pr.damage;
               addPastelExplosion(pr.x, pr.y, 1.05);
@@ -1037,6 +1110,8 @@
       state.spawners = state.spawners.filter(s => !s.dead || s.alpha > 0);
     }
 
+    // 階段に触れていて鍵を持っていれば次フロアへ。
+    // 演出中の二重発火を防ぐため floorChangingUntil でもガードする。
     function checkStairs(){
       const p = state.player;
       const stairs = state.dungeon.stairs;
@@ -1055,10 +1130,17 @@
       }
     }
 
+    // 描画本体。
+    // マップ -> 障害物 -> 巣 -> 飛び道具 -> 敵 -> アイテム -> プレイヤー -> 追加エフェクト の順で重ねる。
     function draw(){
-      const w = canvas.clientWidth, h = canvas.clientHeight;
+      const screenW = canvas.clientWidth, screenH = canvas.clientHeight;
+      const w = viewWidth, h = viewHeight;
       const cam = {x: state.player.x - w/2, y: state.player.y - h/2};
-      ctx.clearRect(0,0,w,h);
+
+      // まず実画面全体をクリアしてから、論理座標系に合わせて拡大率を適用する。
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      ctx.clearRect(0,0,screenW,screenH);
+      ctx.setTransform(devicePixelRatio * renderScale, 0, 0, devicePixelRatio * renderScale, 0, 0);
 
       const d = state.dungeon;
       ctx.fillStyle = d.theme.wall;
@@ -1088,6 +1170,7 @@
         ctx.restore();
       }
 
+      // 巣のスポーン処理。近くに敵が多すぎる場合は増援を抑制する。
       for (const s of state.spawners) {
         ctx.save();
         ctx.globalAlpha = s.dead ? Math.max(0,s.alpha??1) : 1;
@@ -1095,6 +1178,7 @@
         ctx.restore();
       }
 
+      // 飛び道具
       for (const pr of state.projectiles) {
         ctx.fillStyle = pr.color;
         ctx.beginPath();
@@ -1102,7 +1186,9 @@
         ctx.fill();
       }
 
+      // 爆発などの一時エフェクト。床より上、敵より下に置くと視認しやすい。
       drawEffects(cam);
+      // 生き物とアイテム
       for (const e of state.enemies) drawEnemy(e, cam);
       for (const it of state.pickups) drawPickup(it, cam);
       drawPlayer(state.player, cam);
