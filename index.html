@@ -1,4 +1,4 @@
-<!-- ver. 0.3.8 -->
+<!-- ver. 0.3.9 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -192,7 +192,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.3.8</div>
+  <div id="versionTag">ver. 0.3.9</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1641,24 +1641,32 @@
     }
 
     function damageEnemy(e, dmg, source=null){
+      const wasAlive = !e.dead && e.hp > 0;
       e.hp -= dmg;
       e.damageFlash = 1;
       e.hpBarVisible = true;
-      if (source && source.kind === 'bomb' && source.from === 'player') {
+
+      const isPlayerBomb = !!(source && source.kind === 'bomb' && source.from === 'player');
+      const willDie = wasAlive && e.hp <= 0;
+
+      // 音の振り分け:
+      // - 爆弾ヒットは常にドーン.mp3
+      // - ただし爆弾キル時も追加の通常ヒット音は鳴らさない
+      // - 剣など他の攻撃は通常ヒット音
+      if (isPlayerBomb) {
         playSfx(source.killSfx || 'bombkill');
       } else {
         playSfx('hit');
       }
+
       if (e.hp <= 0 && !e.dead){
         e.dead = true;
         e.deathAnim = 0.5;
-        addPastelExplosion(e.x, e.y, e.boss ? 1.8 : 1.35);
         state.player.gold += e.gold;
         state.player.xp += e.gold;
-        if (e.boss || e.type === 'boss') {
+        if (e.boss) {
           state.player.key = true;
           showOverlay('鍵を入手');
-          playSfx('level');
         }
         maybeDropWeapon(e.x,e.y);
         checkLevelUp();
