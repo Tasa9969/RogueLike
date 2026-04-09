@@ -1,4 +1,4 @@
-<!-- ver. 0.2.4 -->
+<!-- ver. 0.2.5 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -175,7 +175,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.2.4</div>
+  <div id="versionTag">ver. 0.2.5</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -404,6 +404,7 @@
     const SWORD_MAX_REACH = 84;      // 剣を押しっぱなしにした時の最長距離
     const SWORD_EXTEND_TIME = 0.12;  // 剣が伸び切るまでの時間
     const SWORD_RETURN_TIME = 0.12;  // ボタンを離してから戻り切るまでの時間
+    const LEVEL_XP_MULT = 5;         // レベルアップ必要経験値を何倍にするか
     const keys = new Set();
     const dirs = {
       ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0],
@@ -476,7 +477,7 @@
         maxSpeed: 210,
         level: 1,
         xp: 0,
-        xpNext: 12,
+        xpNext: 12 * LEVEL_XP_MULT,
         gold: 0,
         poisonUntil: 0,
         poisonTickAt: 0,
@@ -485,7 +486,7 @@
         key: false,
         sword: {tier:'wood', damage:2, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
-        bow: {tier:'silver', damage:6, arrows:14, max:14, speed:480, cooldown:0.8, last:-9},
+        bow: {tier:'silver', damage:10, arrows:14, max:14, speed:480, cooldown:0.8, last:-9},
       };
     }
 
@@ -1488,7 +1489,26 @@
           : bowTiers[randi(0, bowTiers.length-1)];
         state.pickups.push({x,y,kind,tier,r:8});
       }
-      if (Math.random() < 0.12) state.pickups.push({x,y,kind:'heal',r:8});
+
+      // HP回復アイテム。回復量は 1x / 2x / 4x / 8x、出現率は逆比例。
+      const healDrops = [
+        {mult:1, chance:0.12},
+        {mult:2, chance:0.06},
+        {mult:4, chance:0.03},
+        {mult:8, chance:0.015},
+      ];
+      for (const heal of healDrops) {
+        if (Math.random() < heal.chance) {
+          state.pickups.push({
+            x, y,
+            kind:'heal',
+            mult: heal.mult,
+            healAmount: 5 * heal.mult,
+            r: 8 * heal.mult,
+          });
+        }
+      }
+
       if (Math.random() < 0.08) state.pickups.push({x,y,kind:'antidote',r:8});
       if (Math.random() < 0.08) state.pickups.push({x,y,kind:'mushroom',r:8});
     }
@@ -1507,7 +1527,7 @@
         };
         return {tier:t, ...map[t], max:map[t].durability, last:-9};
       }
-      const map = {copper:{damage:3,arrows:8,speed:430,cooldown:0.9}, silver:{damage:6,arrows:14,speed:480,cooldown:0.8}, gold:{damage:12,arrows:24,speed:530,cooldown:0.65}};
+      const map = {copper:{damage:5,arrows:8,speed:430,cooldown:0.9}, silver:{damage:10,arrows:14,speed:480,cooldown:0.8}, gold:{damage:20,arrows:24,speed:530,cooldown:0.65}};
       return {tier:t, ...map[t], max:map[t].arrows, last:-9};
     }
 
@@ -1517,7 +1537,7 @@
         if (item.dead) continue;
         if (dist(item,p) < p.r + item.r + 6) {
           item.dead = true;
-          if (item.kind==='heal') p.hp = Math.min(p.hpMax, p.hp + 5);
+          if (item.kind==='heal') p.hp = Math.min(p.hpMax, p.hp + (item.healAmount || 5));
           if (item.kind==='antidote') p.poisonUntil = 0;
           if (item.kind==='mushroom') p.antidoteMushrooms++;
           if (item.kind==='sword') p.sword = makeWeapon('sword', item.tier);
@@ -1533,7 +1553,7 @@
       while (p.xp >= p.xpNext) {
         p.xp -= p.xpNext;
         p.level++;
-        p.xpNext = Math.floor(p.xpNext * 1.3 + 4);
+        p.xpNext = Math.floor((p.xpNext / LEVEL_XP_MULT) * 1.3 + 4) * LEVEL_XP_MULT;
         p.hpMax += 4;
         p.attack += 1;
         p.defense += 1;
@@ -1859,17 +1879,24 @@
 
     function drawPickup(it, cam){
       const x = it.x-cam.x, y=it.y-cam.y;
-      if (it.kind==='heal') ctx.fillStyle = '#52d96b';
-      else if (it.kind==='antidote') ctx.fillStyle = '#58e0c1';
+      if (it.kind==='heal') {
+        const healPalette = {1:'#52d96b', 2:'#7be07f', 4:'#9df0a4', 8:'#d2ffd4'};
+        ctx.fillStyle = healPalette[it.mult || 1] || '#52d96b';
+      } else if (it.kind==='antidote') ctx.fillStyle = '#58e0c1';
       else if (it.kind==='mushroom') ctx.fillStyle = '#d95ce3';
       else ctx.fillStyle = tierColor(it.tier);
       ctx.beginPath();
       ctx.arc(x,y,it.r,0,Math.PI*2);
       ctx.fill();
       ctx.fillStyle = '#111';
-      ctx.font = '10px sans-serif';
+      ctx.font = `${Math.max(10, Math.floor(8 + (it.r || 8) * 0.25))}px sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(it.kind==='sword'?'剣':it.kind==='bow'?'弓':it.kind==='heal'?'H':it.kind==='mushroom'?'茸':'A', x, y+3);
+      const label = it.kind==='sword' ? '剣'
+        : it.kind==='bow' ? '弓'
+        : it.kind==='heal' ? (it.mult && it.mult > 1 ? `H${it.mult}` : 'H')
+        : it.kind==='mushroom' ? '茸'
+        : 'A';
+      ctx.fillText(label, x, y+3);
     }
 
     function drawSpawner(x,y,r,ratio){
