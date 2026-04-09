@@ -1,4 +1,4 @@
-<!-- ver. 0.2.7 -->
+<!-- ver. 0.2.8 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -166,7 +166,7 @@
       <div class="panel">
         <div class="row"><span>武器</span><strong id="weaponText"></strong></div>
         <div class="row"><span>剣耐久</span><strong id="swordText"></strong></div>
-        <div class="row"><span>弓の矢</span><strong id="bowText"></strong></div>
+        <div class="row"><span>爆弾数</span><strong id="bowText"></strong></div>
         <div id="buffs"></div>
       </div>
 
@@ -174,14 +174,14 @@
         <div><strong>操作</strong></div>
         <div>移動: 矢印キー / WASD / テンキー風 8方向</div>
         <div>剣: J（常備の木の剣あり）</div>
-        <div>弓: K</div>
+        <div>爆弾: K</div>
         <div>毒消しキノコ: L</div>
         <div>再開始: R</div>
       </div>
 
       <div class="panel hint">
         <div><strong>入っている要素</strong></div>
-        <div>プレイヤー中心スクロール、8方向慣性移動、接触ダメージ0.2秒更新、伸びて戻る多段ヒット剣、弓、毒、毒消しキノコ、砲台、増産する巣、フロアマスター、鍵、階段、軽快な効果音、ヒット爆発、フロア遷移演出。</div>
+        <div>プレイヤー中心スクロール、8方向慣性移動、接触ダメージ0.2秒更新、伸びて戻る多段ヒット剣、爆弾、毒、毒消しキノコ、砲台、増産する巣、フロアマスター、鍵、階段、軽快な効果音、ヒット爆発、フロア遷移演出。</div>
       </div>
 
       <div class="panel hint">
@@ -192,7 +192,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.2.7</div>
+  <div id="versionTag">ver. 0.2.8</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -299,6 +299,20 @@
       playSfx(scale > 1.2 ? 'explode' : 'hit');
     }
 
+    function addRainbowBombExplosion(x, y, radius){
+      // 爆弾専用。自機サイズの約2倍を基準に、レインボーで点滅しながら丸く広がる。
+      const palette = ['#ff4d4d','#ff9f1c','#ffe66d','#4dff88','#4dd2ff','#6c63ff','#ff66d8'];
+      state.effects.push({
+        type:'rainbowBomb',
+        x, y,
+        time:0,
+        duration:0.52,
+        radius,
+        palette,
+      });
+      playSfx('explode');
+    }
+
     function addFloatingText(x, y, text, color = '#ffffff', scale = 1) {
       state.effects.push({
         type:'text',
@@ -353,6 +367,32 @@
           ctx.beginPath();
           ctx.arc(fx.x - cam.x, fx.y - cam.y, r * 0.6, 0, Math.PI * 2);
           ctx.fill();
+          ctx.restore();
+          continue;
+        }
+        if (fx.type === 'rainbowBomb') {
+          const t = fx.time / fx.duration;
+          const ring = lerp(fx.radius * 0.28, fx.radius, t);
+          const color = fx.palette[Math.floor(t * 28) % fx.palette.length];
+          ctx.save();
+          ctx.globalCompositeOperation = 'screen';
+          ctx.globalAlpha = Math.max(0, 0.75 * (1 - t));
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(fx.x - cam.x, fx.y - cam.y, ring * 0.72, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = Math.max(0, 0.95 * (1 - t));
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 8 + (1 - t) * 16;
+          ctx.beginPath();
+          ctx.arc(fx.x - cam.x, fx.y - cam.y, ring, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = Math.max(0, 0.55 * (1 - t));
+          ctx.strokeStyle = fx.palette[(Math.floor(t * 28) + 3) % fx.palette.length];
+          ctx.lineWidth = 3 + (1 - t) * 7;
+          ctx.beginPath();
+          ctx.arc(fx.x - cam.x, fx.y - cam.y, ring * 0.46, 0, Math.PI * 2);
+          ctx.stroke();
           ctx.restore();
           continue;
         }
@@ -543,7 +583,7 @@
         key: false,
         sword: {tier:'wood', damage:2, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
-        bow: {tier:'silver', damage:10, arrows:14, max:14, speed:480, cooldown:0.8, last:-9},
+        bow: {tier:'silver', damage:10, arrows:14, max:14, speed:360, cooldown:0.8, last:-9},
       };
     }
 
@@ -1046,11 +1086,18 @@
       if ((keys.has('k') || keys.has('K')) && p.bow && state.t - p.bow.last > p.bow.cooldown && p.bow.arrows > 0) {
         p.bow.last = state.t;
         p.bow.arrows--;
-        // プレイヤー正面方向に細長い当たり判定を出す。
-      const dir = {x:Math.cos(p.angle), y:Math.sin(p.angle)};
+        const dir = {x:Math.cos(p.angle), y:Math.sin(p.angle)};
+        const blastRadius = state.player.r * 2;
         state.projectiles.push({
-          from:'player', x:p.x+dir.x*18, y:p.y+dir.y*18, vx:dir.x*p.bow.speed, vy:dir.y*p.bow.speed,
-          r:4, damage:p.bow.damage, life:2.4, color:tierColor(p.bow.tier)
+          from:'player',
+          kind:'bomb',
+          x:p.x+dir.x*18, y:p.y+dir.y*18,
+          vx:dir.x*p.bow.speed, vy:dir.y*p.bow.speed,
+          r:7,
+          damage:p.bow.damage * 3,
+          blastRadius,
+          life:2.1,
+          color:tierColor(p.bow.tier)
         });
         if (p.bow.arrows <= 0) p.bow = null;
         playSfx('bow');
@@ -1485,6 +1532,36 @@
       }
     }
 
+    function explodeBomb(pr){
+      if (!pr || pr.exploded) return;
+      pr.exploded = true;
+      pr.life = -1;
+      const blastRadius = pr.blastRadius || (state.player.r * 2);
+      addRainbowBombExplosion(pr.x, pr.y, blastRadius);
+
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        if (dist(pr, e) <= blastRadius + e.r) {
+          damageEnemy(e, pr.damage);
+        }
+      }
+      for (const s of state.spawners) {
+        if (s.dead) continue;
+        if (dist(pr, s) <= blastRadius + s.r) {
+          s.hp -= pr.damage;
+          if (s.hp <= 0) s.dead = true;
+        }
+      }
+      for (const o of state.dungeon.objects) {
+        if (!o.breakable || o.dead) continue;
+        const cx = o.x + o.w/2, cy = o.y + o.h/2;
+        if (Math.hypot(pr.x - cx, pr.y - cy) <= blastRadius + Math.max(o.w, o.h) * 0.35) {
+          o.hp -= pr.damage;
+          if (o.hp <= 0) o.dead = true;
+        }
+      }
+    }
+
     function handleProjectiles(){
       const p = state.player;
       for(const pr of state.projectiles){
@@ -1494,6 +1571,23 @@
             damagePlayer(pr.damage, pr.poison ? rand(5,20) : 0);
             addPastelExplosion(pr.x, pr.y, 1.0);
             pr.life = -1;
+          }
+        } else if (pr.kind === 'bomb') {
+          let exploded = false;
+          for(const e of state.enemies){
+            if (!e.dead && dist(pr,e) < pr.r + e.r) {
+              explodeBomb(pr);
+              exploded = true;
+              break;
+            }
+          }
+          if (exploded || pr.life <= 0) continue;
+          for (const s of state.spawners) {
+            if (!s.dead && dist(pr,s) < pr.r + s.r) {
+              explodeBomb(pr);
+              exploded = true;
+              break;
+            }
           }
         } else {
           for(const e of state.enemies){
@@ -1606,7 +1700,8 @@
         };
         return {tier:t, ...map[t], max:map[t].durability, last:-9};
       }
-      const map = {copper:{damage:5,arrows:8,speed:430,cooldown:0.9}, silver:{damage:10,arrows:14,speed:480,cooldown:0.8}, gold:{damage:20,arrows:24,speed:530,cooldown:0.65}};
+      // 爆弾の直撃ダメージ基礎値。実際の爆発ダメージはこの3倍。
+      const map = {copper:{damage:5,arrows:8,speed:340,cooldown:0.9}, silver:{damage:10,arrows:14,speed:360,cooldown:0.8}, gold:{damage:20,arrows:24,speed:390,cooldown:0.65}};
       return {tier:t, ...map[t], max:map[t].arrows, last:-9};
     }
 
@@ -1748,6 +1843,23 @@
 
       // 飛び道具
       for (const pr of state.projectiles) {
+        if (pr.kind === 'bomb') {
+          const bombX = pr.x - cam.x, bombY = pr.y - cam.y;
+          ctx.save();
+          ctx.globalCompositeOperation = 'screen';
+          ctx.fillStyle = pr.color;
+          ctx.beginPath();
+          ctx.arc(bombX, bombY, pr.r, 0, Math.PI*2);
+          ctx.fill();
+          const flicker = ['#ff4d4d','#ffe66d','#4dd2ff','#6c63ff','#ff66d8'][Math.floor(state.t * 40) % 5];
+          ctx.strokeStyle = flicker;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(bombX, bombY, pr.r + 3, 0, Math.PI*2);
+          ctx.stroke();
+          ctx.restore();
+          continue;
+        }
         ctx.fillStyle = pr.color;
         ctx.beginPath();
         ctx.arc(pr.x-cam.x, pr.y-cam.y, pr.r, 0, Math.PI*2);
@@ -2038,7 +2150,7 @@
       ui.mushroomText.textContent = p.antidoteMushrooms;
       ui.weaponText.textContent = [
         p.sword ? `剣:${p.sword.tier}` : '剣:wood',
-        p.bow ? `弓:${p.bow.tier}` : '弓なし'
+        p.bow ? `爆弾:${p.bow.tier}` : '爆弾なし'
       ].join(' / ');
       ui.swordText.textContent = p.sword ? '∞' : '-';
       ui.bowText.textContent = p.bow ? `${p.bow.arrows}/${p.bow.max}` : '-';
