@@ -1,4 +1,4 @@
-<!-- ver. 0.2.6 -->
+<!-- ver. 0.2.7 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -192,7 +192,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.2.6</div>
+  <div id="versionTag">ver. 0.2.7</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -548,9 +548,10 @@
     }
 
     function tierColor(t){
+      // 武器色。iron は床色に埋もれやすかったため、明るい青白系に変更。
       return t==='wood' ? '#d8c29d' :
         t==='copper' ? '#8b5a2b' :
-        t==='iron' ? '#6f7f8f' :
+        t==='iron' ? '#dfe8ff' :
         t==='silver' ? '#d7e0ea' :
         t==='flame' ? '#d94a3a' :
         t==='lizard' ? '#9acd32' :
