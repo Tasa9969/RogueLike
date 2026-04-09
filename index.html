@@ -1,4 +1,4 @@
-<!-- ver. 0.2.2 -->
+<!-- ver. 0.2.3 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -175,7 +175,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.2.2</div>
+  <div id="versionTag">ver. 0.2.3</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -509,45 +509,114 @@
 
     // 添付の敵一覧から、この試作に相性が良い6種類を抽出して使用する。
     // 後半ほど強くなり、50階で最後の通常敵ドラゴンが出るように段階解放する。
+    const ENEMY_ORDER = [
+      'slime','goblin','kobold','giantRat','skeleton',
+      'zombie','ghost','lich','mimic','rustMonster',
+      'roper','dragon','orc','golem','beholder'
+    ];
+
     const ENEMY_PROFILES = {
       slime: {
-        name:'スライム', shape:'circle', color:'#d7ef79', r:13, ai:'erratic',
-        hp:15, attack:10, defense:12, mass:1.4, accel:160, maxSpeed:70
+        name:'スライム', englishName:'Slime',
+        shape:'dome', color:'#d8ef7a', accent:'#79c7ff',
+        ai:'wander', hp:15, attack:10, defense:12, mass:1.5, accel:145, maxSpeed:72
       },
       goblin: {
-        name:'ゴブリン', shape:'triangle', color:'#7a9b40', r:14, ai:'intercept',
-        hp:25, attack:15, defense:8, mass:1.0, accel:340, maxSpeed:150
+        name:'ゴブリン', englishName:'Goblin',
+        shape:'triangle', color:'#7c9a42', accent:'#4e3419',
+        ai:'ambush', hp:25, attack:15, defense:8, mass:1.0, accel:340, maxSpeed:150
       },
       kobold: {
-        name:'コボルド', shape:'square', color:'#9a7a58', r:15, ai:'flee', ranged:true, shotEvery:1.8,
-        hp:20, attack:12, defense:10, mass:1.1, accel:260, maxSpeed:135
+        name:'コボルド', englishName:'Kobold',
+        shape:'rectangle', color:'#8f7a60', accent:'#c9b9a0',
+        ai:'trapper', ranged:true, shotEvery:1.8, projectileSpeed:220,
+        hp:20, attack:12, defense:10, mass:1.1, accel:260, maxSpeed:138
+      },
+      giantRat: {
+        name:'ジャイアントラット', englishName:'Giant Rat',
+        shape:'oval', color:'#332b26', accent:'#6d6d72',
+        ai:'wallRunner', hp:12, attack:14, defense:6, mass:0.8, accel:500, maxSpeed:190, poison:true
       },
       skeleton: {
-        name:'スケルトン', shape:'hex', color:'#d9d9d0', r:18, ai:'chase',
-        hp:40, attack:20, defense:15, mass:2.2, accel:220, maxSpeed:95
+        name:'スケルトン', englishName:'Skeleton',
+        shape:'cage', color:'#e1e1d8', accent:'#919191',
+        ai:'patrol', hp:40, attack:20, defense:15, mass:2.2, accel:220, maxSpeed:96
+      },
+      zombie: {
+        name:'ゾンビ', englishName:'Zombie',
+        shape:'blob', color:'#6f7e49', accent:'#7f4f91',
+        ai:'slowChase', hp:80, attack:18, defense:25, mass:3.3, accel:90, maxSpeed:48
+      },
+      ghost: {
+        name:'ゴースト', englishName:'Ghost',
+        shape:'wisp', color:'#8aa7ff', accent:'#d7b2ff',
+        ai:'phase', phasesWalls:true, hp:30, attack:15, defense:50, mass:0.3, accel:180, maxSpeed:118
       },
       lich: {
-        name:'リッチ', shape:'diamond', color:'#5a2d7c', r:20, ai:'flee', ranged:true, shotEvery:1.15,
-        hp:150, attack:85, defense:40, mass:1.8, accel:210, maxSpeed:105
+        name:'リッチ', englishName:'Lich',
+        shape:'pentagon', color:'#2a1730', accent:'#d6b253',
+        ai:'archmage', ranged:true, shotEvery:1.0, projectileSpeed:255,
+        hp:150, attack:85, defense:40, mass:1.6, accel:180, maxSpeed:102
+      },
+      mimic: {
+        name:'ミミック', englishName:'Mimic',
+        shape:'chest', color:'#7a5431', accent:'#b33a3a',
+        ai:'mimic', hp:120, attack:60, defense:45, mass:3.0, accel:300, maxSpeed:135
+      },
+      rustMonster: {
+        name:'ラスト・モンスター', englishName:'Rust Monster',
+        shape:'starburst', color:'#c88349', accent:'#6a5e51',
+        ai:'equipmentHunter', hp:45, attack:5, defense:20, mass:1.2, accel:320, maxSpeed:150
+      },
+      roper: {
+        name:'ローパー', englishName:'Roper',
+        shape:'cylinder', color:'#7b7568', accent:'#bdb4aa',
+        ai:'turret', turret:true, shotEvery:1.55, projectileSpeed:205,
+        hp:100, attack:30, defense:40, mass:999
       },
       dragon: {
-        name:'ドラゴン', shape:'hex', color:'#a33a2a', r:26, ai:'intercept', ranged:true, shotEvery:1.35,
-        hp:1000, attack:100, defense:80, mass:5.5, accel:250, maxSpeed:175
+        name:'ドラゴン', englishName:'Dragon',
+        shape:'dragon', color:'#a33b2a', accent:'#1d1d1d',
+        ai:'wyvern', ranged:true, shotEvery:1.2, projectileSpeed:280,
+        hp:1000, attack:100, defense:80, mass:5.7, accel:260, maxSpeed:178
+      },
+      orc: {
+        name:'オーク', englishName:'Orc',
+        shape:'trapezoid', color:'#6f7c3e', accent:'#9f7c63',
+        ai:'bruiser', hp:150, attack:45, defense:30, mass:2.7, accel:210, maxSpeed:92
+      },
+      golem: {
+        name:'ゴーレム', englishName:'Golem',
+        shape:'cube', color:'#8f7d65', accent:'#c8b79a',
+        ai:'sentinel', hp:300, attack:70, defense:90, mass:8.5, accel:110, maxSpeed:58
+      },
+      beholder: {
+        name:'ベホルダー', englishName:'Beholder',
+        shape:'eye', color:'#5f3d58', accent:'#d85f4d',
+        ai:'allSeeing', ranged:true, shotEvery:0.85, projectileSpeed:250,
+        hp:250, attack:50, defense:40, mass:2.2, accel:150, maxSpeed:74
       }
     };
 
-    // 50階で最後の通常敵ドラゴンが自然出現するように配分。
+    // 5フロアごとに出現レンジをひとつずつスライドさせる。
+    // 1-5F: 1〜5番目, 6-10F: 2〜6番目 ... 46-50F: 11〜15番目
+    function enemyWindowForFloor(floor) {
+      const band = Math.min(10, Math.max(0, Math.floor((floor - 1) / 5)));
+      const start = Math.min(ENEMY_ORDER.length - 5, band);
+      return ENEMY_ORDER.slice(start, start + 5);
+    }
+
     function availableEnemyTypesForFloor(floor) {
-      if (floor >= 50) return ['slime','goblin','kobold','skeleton','lich','dragon'];
-      if (floor >= 38) return ['slime','goblin','kobold','skeleton','lich'];
-      if (floor >= 26) return ['slime','goblin','kobold','skeleton'];
-      if (floor >= 16) return ['slime','goblin','kobold'];
-      if (floor >= 8) return ['slime','goblin'];
-      return ['slime'];
+      return enemyWindowForFloor(floor);
+    }
+
+    function strongestEnemyTypeForFloor(floor) {
+      const pool = availableEnemyTypesForFloor(floor);
+      return pool[pool.length - 1];
     }
 
     function spawnerEnemyTypesForFloor(floor) {
-      const pool = availableEnemyTypesForFloor(floor).filter(t => t !== 'dragon');
+      const pool = availableEnemyTypesForFloor(floor).slice(0, 4);
       return pool.length ? pool : ['slime'];
     }
 
@@ -688,46 +757,65 @@
       const base = {
         type, x,y,vx:0,vy:0,angle:0,lastContact:0,lastShot:0,
         damageFlash:0, dead:false, deathAnim:0, hpBarVisible:false,
+        patrolSeed: rand(0, Math.PI * 2),
+        anchorX: x,
+        anchorY: y,
+        dormant: false,
       };
 
       if (type === 'boss') {
-        const bossBase = ENEMY_PROFILES.dragon;
+        const bossType = strongestEnemyTypeForFloor(floor);
+        const profile = ENEMY_PROFILES[bossType] || ENEMY_PROFILES.skeleton;
         Object.assign(base, {
-          name: '古竜',
-          shape: bossBase.shape,
-          color: '#c43c2f',
-          r: bossBase.r * 2,
-          hpMax: Math.round(bossBase.hp * 2 + floor * 40),
-          hp: Math.round(bossBase.hp * 2 + floor * 40),
-          attack: Math.round(bossBase.attack * 2),
-          defense: Math.round(bossBase.defense * 2),
-          mass: bossBase.mass * 2.4,
-          accel: bossBase.accel * 0.92,
-          maxSpeed: bossBase.maxSpeed * 1.12,
-          ai: 'intercept',
+          bossBaseType: bossType,
+          name: floor === 1 ? `${profile.name}ジャイアント` : `${profile.name}ロード`,
+          englishName: floor === 1 ? `${profile.englishName} Giant` : `${profile.englishName} Lord`,
+          shape: profile.shape,
+          color: profile.color,
+          accent: profile.accent,
+          r: Math.round(profile.r * 2.0),
+          hpMax: Math.round(profile.hp * 2.0 + floor * 16),
+          hp: Math.round(profile.hp * 2.0 + floor * 16),
+          attack: Math.max(1, Math.round(profile.attack * 2.0)),
+          defense: Math.max(0, Math.round(profile.defense * 1.8)),
+          mass: (profile.mass || 1) * 2.6,
+          accel: Math.max(0, (profile.accel || 0) * 0.9),
+          maxSpeed: (profile.maxSpeed || 0) * 1.08,
+          ai: profile.ai,
+          ranged: !!profile.ranged,
+          shotEvery: Math.max(0.45, (profile.shotEvery || 1.4) * 0.82),
+          projectileSpeed: (profile.projectileSpeed || 230) * 1.15,
+          poison: !!profile.poison,
+          turret: !!profile.turret,
+          phasesWalls: !!profile.phasesWalls,
           boss: true,
-          ranged: true,
-          shotEvery: 0.95,
-          pattern: true
+          dormant: false,
         });
       } else {
         const profile = ENEMY_PROFILES[type] || ENEMY_PROFILES.slime;
-        const growth = 1 + Math.max(0, floor - 1) * 0.035;
+        const growth = 1 + Math.max(0, floor - 1) * 0.028;
         Object.assign(base, {
           name: profile.name,
+          englishName: profile.englishName,
           shape: profile.shape,
           color: profile.color,
+          accent: profile.accent,
           r: profile.r,
-          hpMax: Math.round(profile.hp * growth),
-          hp: Math.round(profile.hp * growth),
-          attack: Math.max(1, Math.round(profile.attack * (1 + Math.max(0, floor - 1) * 0.018))),
-          defense: Math.max(0, Math.round(profile.defense * (1 + Math.max(0, floor - 1) * 0.012))),
+          hpMax: Math.max(1, Math.round(profile.hp * growth)),
+          hp: Math.max(1, Math.round(profile.hp * growth)),
+          attack: Math.max(1, Math.round(profile.attack * (1 + Math.max(0, floor - 1) * 0.015))),
+          defense: Math.max(0, Math.round(profile.defense * (1 + Math.max(0, floor - 1) * 0.01))),
           mass: profile.mass,
-          accel: profile.accel,
-          maxSpeed: profile.maxSpeed,
+          accel: profile.accel || 0,
+          maxSpeed: profile.maxSpeed || 0,
           ai: profile.ai,
           ranged: !!profile.ranged,
-          shotEvery: profile.shotEvery || 1.6
+          shotEvery: profile.shotEvery || 1.6,
+          projectileSpeed: profile.projectileSpeed || 230,
+          poison: !!profile.poison,
+          turret: !!profile.turret,
+          phasesWalls: !!profile.phasesWalls,
+          dormant: profile.ai === 'mimic',
         });
       }
       base.gold = goldValue(base);
@@ -768,6 +856,11 @@
     }
 
     function moveBody(body, dt) {
+      if (body.phasesWalls) {
+        body.x += body.vx * dt;
+        body.y += body.vy * dt;
+        return;
+      }
       const nx = body.x + body.vx*dt;
       if (canMoveCircle(nx, body.y, body.r)) body.x = nx; else body.vx *= -0.18;
       const ny = body.y + body.vy*dt;
@@ -891,37 +984,125 @@
         e.damageFlash = Math.max(0, e.damageFlash - dt*4);
         const d = dist(e,p);
         if (e.turret) {
-          if (e.targeting === 'direct') e.angle = angleTo(e.x,e.y,p.x,p.y); else e.angle = e.fixedAngle;
-          if (state.t - e.lastShot > e.shotEvery && d < 500) {
+          const turretAngle = angleTo(e.x, e.y, p.x, p.y);
+          e.angle = e.targeting === 'fixed' ? e.fixedAngle : turretAngle;
+          if (state.t - e.lastShot > e.shotEvery && d < 520) {
             e.lastShot = state.t;
             const dir = {x:Math.cos(e.angle), y:Math.sin(e.angle)};
-            state.projectiles.push({from:'enemy', x:e.x+dir.x*18, y:e.y+dir.y*18, vx:dir.x*220, vy:dir.y*220, r:7, damage:2, life:4, color:'#ff9b6a', poison:false});
+            state.projectiles.push({
+              from:'enemy',
+              x:e.x+dir.x*(e.r+4), y:e.y+dir.y*(e.r+4),
+              vx:dir.x*(e.projectileSpeed || 220), vy:dir.y*(e.projectileSpeed || 220),
+              r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack * 0.12)), life:4,
+              color:e.accent || '#ff9b6a', poison:!!e.poison
+            });
           }
           continue;
         }
-        let target = {x:p.x, y:p.y};
-        if (e.ai==='intercept') target = {x:p.x+p.vx*0.5, y:p.y+p.vy*0.5};
-        if (e.ai==='erratic') target = {x:p.x+Math.cos(state.t*2+e.x)*80, y:p.y+Math.sin(state.t*1.7+e.y)*80};
-        if (e.ai==='flee' && d<180) target = {x:e.x-(p.x-e.x), y:e.y-(p.y-e.y)};
 
-        let dir = norm(target.x-e.x, target.y-e.y);
-        if (e.ranged && !e.boss && d<180) dir = norm(e.x-p.x,e.y-p.y);
+        if (e.ai === 'mimic') {
+          if (e.dormant && d > 95) {
+            e.vx *= 0.7;
+            e.vy *= 0.7;
+            continue;
+          }
+          e.dormant = false;
+          if (d < 170) e.ai = 'bruiser';
+        }
+
+        let target = {x:p.x, y:p.y};
+        let dir;
+        if (e.ai === 'wander') {
+          target = {
+            x:e.anchorX + Math.cos(state.t * 0.7 + e.patrolSeed) * 46,
+            y:e.anchorY + Math.sin(state.t * 0.9 + e.patrolSeed) * 28
+          };
+        } else if (e.ai === 'ambush') {
+          target = d < 180
+            ? {x:p.x+p.vx*0.35, y:p.y+p.vy*0.35}
+            : {x:e.anchorX + Math.cos(e.patrolSeed) * 20, y:e.anchorY + Math.sin(e.patrolSeed) * 20};
+        } else if (e.ai === 'trapper') {
+          target = d < 180 ? {x:e.x-(p.x-e.x)*0.6, y:e.y-(p.y-e.y)*0.6} : {x:p.x, y:p.y};
+        } else if (e.ai === 'wallRunner') {
+          const orbit = angleTo(e.x, e.y, p.x, p.y) + Math.PI * 0.5;
+          target = {x:p.x + Math.cos(orbit) * 90, y:p.y + Math.sin(orbit) * 90};
+        } else if (e.ai === 'patrol') {
+          target = {
+            x:e.anchorX + Math.cos(state.t * 0.55 + e.patrolSeed) * 56,
+            y:e.anchorY + Math.sin(state.t * 0.55 + e.patrolSeed) * 56
+          };
+          if (d < 150) target = {x:p.x, y:p.y};
+        } else if (e.ai === 'slowChase') {
+          target = {x:p.x, y:p.y};
+        } else if (e.ai === 'phase') {
+          target = {x:p.x + Math.cos(state.t * 2 + e.patrolSeed) * 28, y:p.y + Math.sin(state.t * 1.6 + e.patrolSeed) * 28};
+        } else if (e.ai === 'archmage') {
+          target = d < 250
+            ? {x:e.x-(p.x-e.x)*0.85, y:e.y-(p.y-e.y)*0.85}
+            : {x:p.x+p.vx*0.4, y:p.y+p.vy*0.4};
+        } else if (e.ai === 'equipmentHunter') {
+          target = d < 170
+            ? {x:p.x+p.vx*0.55, y:p.y+p.vy*0.55}
+            : {x:e.anchorX + Math.cos(state.t * 1.1 + e.patrolSeed) * 30, y:e.anchorY + Math.sin(state.t * 1.1 + e.patrolSeed) * 30};
+        } else if (e.ai === 'bruiser') {
+          target = {x:p.x+p.vx*0.15, y:p.y+p.vy*0.15};
+        } else if (e.ai === 'sentinel') {
+          target = d < 165 ? {x:p.x, y:p.y} : {x:e.anchorX, y:e.anchorY};
+        } else if (e.ai === 'wyvern') {
+          const orbit = state.t * 0.8 + e.patrolSeed;
+          target = d < 260
+            ? {x:p.x + Math.cos(orbit) * 120, y:p.y + Math.sin(orbit) * 80}
+            : {x:p.x, y:p.y};
+        } else if (e.ai === 'allSeeing') {
+          target = d < 220
+            ? {x:e.x-(p.x-e.x)*0.75, y:e.y-(p.y-e.y)*0.75}
+            : {x:p.x, y:p.y};
+        } else {
+          target = {x:p.x, y:p.y};
+        }
+
+        dir = norm(target.x-e.x, target.y-e.y);
+
+        if (e.ranged && !e.boss) {
+          if (d < 160) dir = norm(e.x-p.x, e.y-p.y);
+          if (e.ai === 'allSeeing' || e.ai === 'archmage') {
+            dir = d < 200 ? norm(e.x-p.x, e.y-p.y) : dir;
+          }
+        }
+
         e.vx += dir.x*e.accel*dt;
         e.vy += dir.y*e.accel*dt;
-        e.vx *= 0.93; e.vy *= 0.93;
+
+        const damp = e.ai === 'slowChase' ? 0.88 : e.ai === 'wallRunner' ? 0.95 : 0.93;
+        e.vx *= damp; e.vy *= damp;
         const sp = len(e.vx,e.vy);
         if (sp > e.maxSpeed) {
           const n = norm(e.vx,e.vy);
           e.vx = n.x*e.maxSpeed; e.vy = n.y*e.maxSpeed;
         }
         if (sp>3) e.angle = Math.atan2(e.vy,e.vx);
+        if (e.ai === 'wallRunner' && sp > 8) e.angle += Math.sin(state.t * 12 + e.patrolSeed) * 0.1;
         moveBody(e, dt);
 
-        if (e.ranged && state.t - e.lastShot > e.shotEvery && d < (e.boss?380:300)) {
+        if (e.ranged && state.t - e.lastShot > e.shotEvery && d < (e.boss?430:320)) {
           e.lastShot = state.t;
           const shotAngle = angleTo(e.x,e.y,p.x,p.y);
-          const v = e.boss ? 260 : 230;
-          state.projectiles.push({from:'enemy', x:e.x+Math.cos(shotAngle)*16, y:e.y+Math.sin(shotAngle)*16, vx:Math.cos(shotAngle)*v, vy:Math.sin(shotAngle)*v, r:e.boss?7:5, damage:e.boss?3:1, life:3, color:e.color, poison:false});
+          const spread = e.ai === 'allSeeing' ? 0.18 : e.ai === 'wyvern' ? 0.1 : 0;
+          const volley = e.ai === 'allSeeing' ? 3 : 1;
+          for (let i = 0; i < volley; i++) {
+            const a = shotAngle + (i - (volley - 1) / 2) * spread;
+            const speed = e.projectileSpeed || (e.boss ? 260 : 230);
+            state.projectiles.push({
+              from:'enemy',
+              x:e.x+Math.cos(a)*(e.r+2), y:e.y+Math.sin(a)*(e.r+2),
+              vx:Math.cos(a)*speed, vy:Math.sin(a)*speed,
+              r:e.boss?8:(e.ai==='allSeeing'?6:5),
+              damage:Math.max(1, Math.round(e.attack * (e.ai==='allSeeing' ? 0.09 : 0.07))),
+              life:e.ai==='wyvern' ? 3.6 : 3.1,
+              color:e.accent || e.color,
+              poison:!!e.poison
+            });
+          }
         }
       }
 
@@ -1473,7 +1654,7 @@
       }
       ctx.rotate(e.angle || 0);
       ctx.fillStyle = e.damageFlash > 0 ? '#ffffff' : e.color;
-      drawShape(e.shape, e.r, e.boss, e.poison);
+      drawShape(e.shape, e.r, e.boss, e.poison, e.accent, e.dormant);
       if (e.boss) {
         ctx.strokeStyle = 'rgba(255,255,255,0.65)';
         ctx.lineWidth = 3;
@@ -1492,6 +1673,14 @@
         ctx.font = '10px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(Math.max(0, Math.ceil(e.hp)), x, y+3);
+
+        const inCombat = e.hpBarVisible || dist(state.player, e) < 150;
+        if (inCombat && e.englishName) {
+          ctx.fillStyle = 'rgba(255,255,255,0.92)';
+          ctx.font = '11px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(e.englishName, x, y - e.r - 24);
+        }
       }
     }
 
@@ -1509,7 +1698,7 @@
       ctx.restore();
     }
 
-    function drawShape(shape, r, boss=false, jagged=false){
+    function drawShape(shape, r, boss=false, jagged=false, accent='#fff', dormant=false){
       ctx.beginPath();
       if (jagged) {
         const spikes = 14;
@@ -1521,19 +1710,120 @@
           if (!i) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.closePath();
-      } else if (shape==='circle') ctx.arc(0,0,r,0,Math.PI*2);
-      else if (shape==='square') ctx.rect(-r,-r,r*2,r*2);
-      else if (shape==='triangle') { ctx.moveTo(r,0); ctx.lineTo(-r,-r*0.8); ctx.lineTo(-r,r*0.8); ctx.closePath(); }
-      else if (shape==='diamond') { ctx.moveTo(r,0); ctx.lineTo(0,-r); ctx.lineTo(-r,0); ctx.lineTo(0,r); ctx.closePath(); }
-      else if (shape==='hex') {
+        ctx.fill();
+      } else if (shape==='circle') {
+        ctx.arc(0,0,r,0,Math.PI*2);
+        ctx.fill();
+      } else if (shape==='dome') {
+        ctx.arc(0, r*0.15, r, Math.PI, Math.PI*2);
+        ctx.lineTo(-r, r*0.2);
+        ctx.quadraticCurveTo(0, r*0.65, r, r*0.2);
+        ctx.closePath();
+        ctx.fill();
+      } else if (shape==='square') {
+        ctx.rect(-r,-r,r*2,r*2); ctx.fill();
+      } else if (shape==='rectangle') {
+        ctx.rect(-r*1.15,-r*0.7,r*2.3,r*1.4); ctx.fill();
+      } else if (shape==='triangle') {
+        ctx.moveTo(r,0); ctx.lineTo(-r,-r*0.8); ctx.lineTo(-r,r*0.8); ctx.closePath(); ctx.fill();
+      } else if (shape==='diamond') {
+        ctx.moveTo(r,0); ctx.lineTo(0,-r); ctx.lineTo(-r,0); ctx.lineTo(0,r); ctx.closePath(); ctx.fill();
+      } else if (shape==='oval') {
+        ctx.ellipse(0,0,r*1.18,r*0.78,0,0,Math.PI*2); ctx.fill();
+      } else if (shape==='hex') {
         for(let i=0;i<6;i++){
           const a = i/6*Math.PI*2;
           const px = Math.cos(a)*r, py = Math.sin(a)*r;
           if (!i) ctx.moveTo(px,py); else ctx.lineTo(px,py);
         }
+        ctx.closePath(); ctx.fill();
+      } else if (shape==='cage') {
+        ctx.rect(-r*0.6,-r,r*1.2,r*2); ctx.fill();
+        ctx.strokeStyle = accent; ctx.lineWidth = Math.max(1, r*0.12);
+        for (let i=-1;i<=1;i++) {
+          ctx.beginPath();
+          ctx.moveTo(i*r*0.32,-r);
+          ctx.lineTo(i*r*0.32,r);
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.moveTo(-r*0.6,-r*0.15); ctx.lineTo(r*0.6,-r*0.15);
+        ctx.moveTo(-r*0.6,r*0.25); ctx.lineTo(r*0.6,r*0.25);
+        ctx.stroke();
+      } else if (shape==='blob') {
+        for (let i=0;i<10;i++) {
+          const a = i/10*Math.PI*2;
+          const rr = r * (0.72 + (i%2)*0.22);
+          const px = Math.cos(a)*rr, py = Math.sin(a)*rr;
+          if (!i) ctx.moveTo(px,py); else ctx.quadraticCurveTo(px*1.05, py*1.05, px, py);
+        }
+        ctx.closePath(); ctx.fill();
+      } else if (shape==='wisp') {
+        ctx.arc(0,-r*0.15,r*0.7,0,Math.PI*2);
+        ctx.moveTo(0,r);
+        ctx.quadraticCurveTo(r*0.8,r*0.1,0,-r*0.2);
+        ctx.quadraticCurveTo(-r*0.8,r*0.1,0,r);
+        ctx.fill();
+      } else if (shape==='pentagon') {
+        for(let i=0;i<5;i++){
+          const a = -Math.PI/2 + i/5*Math.PI*2;
+          const px = Math.cos(a)*r, py = Math.sin(a)*r;
+          if (!i) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        }
+        ctx.closePath(); ctx.fill();
+      } else if (shape==='chest') {
+        ctx.rect(-r*0.9,-r*0.45,r*1.8,r*0.95); ctx.fill();
+        ctx.fillStyle = accent;
+        ctx.fillRect(-r*0.9,-r*0.95,r*1.8,r*0.55);
+        ctx.fillStyle = dormant ? '#0d0d0d' : accent;
+        ctx.fillRect(-r*0.12,-r*0.22,r*0.24,r*0.32);
+      } else if (shape==='starburst') {
+        const spikes = 6;
+        for (let i=0;i<spikes*2;i++) {
+          const a = i/(spikes*2)*Math.PI*2;
+          const rr = i%2===0 ? r*1.05 : r*0.45;
+          const px = Math.cos(a)*rr, py = Math.sin(a)*rr;
+          if (!i) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        }
+        ctx.closePath(); ctx.fill();
+      } else if (shape==='cylinder') {
+        ctx.ellipse(0,-r*0.6,r*0.72,r*0.26,0,0,Math.PI*2);
+        ctx.moveTo(-r*0.72,-r*0.6);
+        ctx.lineTo(-r*0.72,r*0.7);
+        ctx.ellipse(0,r*0.7,r*0.72,r*0.26,0,Math.PI,0,true);
+        ctx.lineTo(r*0.72,-r*0.6);
         ctx.closePath();
+        ctx.fill();
+      } else if (shape==='dragon') {
+        for (let i=0;i<8;i++) {
+          const a = -Math.PI/2 + i/8*Math.PI*2;
+          const rr = i%2===0 ? r*1.08 : r*0.72;
+          const px = Math.cos(a)*rr, py = Math.sin(a)*rr;
+          if (!i) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        }
+        ctx.closePath(); ctx.fill();
+      } else if (shape==='trapezoid') {
+        ctx.moveTo(r*0.9,-r*0.75);
+        ctx.lineTo(-r*0.7,-r*0.75);
+        ctx.lineTo(-r,r*0.8);
+        ctx.lineTo(r,r*0.8);
+        ctx.closePath(); ctx.fill();
+      } else if (shape==='cube') {
+        ctx.rect(-r*0.8,-r*0.8,r*1.6,r*1.6); ctx.fill();
+        ctx.strokeStyle = accent; ctx.lineWidth = Math.max(1, r*0.1);
+        ctx.strokeRect(-r*0.8,-r*0.8,r*1.6,r*1.6);
+      } else if (shape==='eye') {
+        ctx.moveTo(-r,0);
+        ctx.quadraticCurveTo(0,-r*0.9,r,0);
+        ctx.quadraticCurveTo(0,r*0.9,-r,0);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = accent;
+        ctx.beginPath(); ctx.arc(0,0,r*0.36,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#111';
+        ctx.beginPath(); ctx.arc(0,0,r*0.16,0,Math.PI*2); ctx.fill();
+      } else {
+        ctx.arc(0,0,r,0,Math.PI*2); ctx.fill();
       }
-      ctx.fill();
       if (boss) {
         ctx.strokeStyle = '#fff6';
         ctx.lineWidth = 3;
