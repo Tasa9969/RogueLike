@@ -1,4 +1,4 @@
-<!-- ver. 0.3.7 -->
+<!-- ver. 0.3.8 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -192,7 +192,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.3.7</div>
+  <div id="versionTag">ver. 0.3.8</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1570,7 +1570,7 @@
       for (const e of state.enemies) {
         if (e.dead) continue;
         if (dist(pr, e) <= blastRadius + e.r) {
-          damageEnemy(e, pr.damage);
+          damageEnemy(e, pr.damage, pr);
         }
       }
       for (const s of state.spawners) {
@@ -1644,10 +1644,12 @@
       e.hp -= dmg;
       e.damageFlash = 1;
       e.hpBarVisible = true;
+      if (source && source.kind === 'bomb' && source.from === 'player') {
+        playSfx(source.killSfx || 'bombkill');
+      } else {
+        playSfx('hit');
+      }
       if (e.hp <= 0 && !e.dead){
-        if (source && source.kind === 'bomb' && source.from === 'player') {
-          playSfx(source.killSfx || 'bombkill');
-        }
         e.dead = true;
         e.deathAnim = 0.5;
         addPastelExplosion(e.x, e.y, e.boss ? 1.8 : 1.35);
@@ -1664,7 +1666,7 @@
     }
 
     function damageEnemyBySword(e, dmg){
-      damageEnemy(e, dmg);
+      damageEnemy(e, dmg, {kind:'sword', from:'player'});
       const p = state.player;
       if (p.sword && !p.sword.permanent) {
         p.sword.durability--;
