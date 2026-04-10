@@ -1,4 +1,4 @@
-<!-- ver. 0.5.7 -->
+<!-- ver. 0.5.8 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.7</div>
+  <div id="versionTag">ver. 0.5.8</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1306,13 +1306,25 @@
         const d = dist(e,p);
         if (e.turret) {
           const turretAngle = angleTo(e.x, e.y, p.x, p.y);
-          e.angle = e.targeting === 'fixed' ? e.fixedAngle : turretAngle;
+
+          // 凸型砲台の先端は図形上「上向き」基準なので、
+          // プレイヤー方向へ向けるには +90度して描画角を合わせる。
+          e.angle = e.targeting === 'fixed' ? e.fixedAngle : (turretAngle + Math.PI * 0.5);
+
           if (state.t - e.lastShot > e.shotEvery && d < 520) {
             e.lastShot = state.t;
-            const dir = {x:Math.cos(e.angle), y:Math.sin(e.angle)};
+
+            // 実際の発射方向はプレイヤー方向。
+            const dir = {x:Math.cos(turretAngle), y:Math.sin(turretAngle)};
+
+            // 凸型砲台だけは先端座標から発射する。
+            const tipOffset = e.shape === 'turret-convex' ? (e.r * 1.02) : (e.r + 4);
+            const spawnX = e.x + dir.x * tipOffset;
+            const spawnY = e.y + dir.y * tipOffset;
+
             state.projectiles.push({
               from:'enemy',
-              x:e.x+dir.x*(e.r+4), y:e.y+dir.y*(e.r+4),
+              x:spawnX, y:spawnY,
               vx:dir.x*(e.projectileSpeed || 220), vy:dir.y*(e.projectileSpeed || 220),
               r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack * 0.12)), life:4,
               color:e.accent || '#ff9b6a', poison:!!e.poison
