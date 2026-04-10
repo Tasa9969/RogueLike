@@ -1,4 +1,4 @@
-<!-- ver. 0.5.4 -->
+<!-- ver. 0.5.6 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -178,6 +178,7 @@
         <div>毒消しキノコ: L</div>
         <div>再開始: R</div>
         <div>剣成長: 木10 / 銅20 / 銀40 / リザード80 / 炎160 / ゴールド320</div>
+        <div>魔法成長: 1回で1〜4pt増加</div>
         <div>ポーズ: P</div>
         <div>ボス名: Lord</div>
       </div>
@@ -195,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.4</div>
+  <div id="versionTag">ver. 0.5.6</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -605,6 +606,27 @@
       if (points >= 20) return 4;
       if (points >= 10) return 2;
       return 1;
+    }
+
+    function magicTierFromPoints(points){
+      if (points >= 160) return 'gold';
+      if (points >= 80) return 'silver';
+      if (points >= 30) return 'copper';
+      return 'copper';
+    }
+
+    function magicLabelFromPoints(points){
+      if (points >= 160) return 'ゴールド';
+      if (points >= 80) return 'シルバー';
+      if (points >= 30) return 'カッパー';
+      return 'カッパー';
+    }
+
+    function magicDamageFromPoints(points){
+      if (points >= 160) return 7;
+      if (points >= 80) return 5;
+      if (points >= 30) return 3;
+      return 2;
     }
 
     function createPlayer(){
@@ -1429,7 +1451,14 @@
         pr.life -= dt;
         pr.x += pr.vx*dt;
         pr.y += pr.vy*dt;
-        if (!canMoveCircle(pr.x, pr.y, pr.r)) { addPastelExplosion(pr.x, pr.y, 0.9); pr.life = -1; }
+        if (!canMoveCircle(pr.x, pr.y, pr.r)) {
+          if (pr.from === 'player' && pr.kind === 'bomb') {
+            explodeMagicProjectile(pr);
+          } else {
+            addPastelExplosion(pr.x, pr.y, 0.9);
+          }
+          pr.life = -1;
+        }
       }
       state.projectiles = state.projectiles.filter(p=>p.life>0);
       updateEffects(dt);
@@ -1760,6 +1789,7 @@
     }
 
     function explodeMagicProjectile(pr){
+      // 魔法弾は敵接触だけでなく、壁に当たった時もここを通して範囲爆発させる。
       const radius = pr.blastRadius || state.player.r * 2;
       createExplosion(pr.x, pr.y, radius, true, pr);
 
@@ -1860,7 +1890,15 @@
         e.deathAnim = 0.5;
         state.player.gold += e.gold;
         state.player.xp += e.gold;
-        if (e.boss) {
+        if (e.shape === 'turret-convex' && !e.dead) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, -e.r*0.78);
+        ctx.lineTo(0, -e.r*1.08);
+        ctx.stroke();
+      }
+      if (e.boss) {
           state.player.key = true;
           showOverlay('鍵を入手');
         }
@@ -1898,6 +1936,7 @@
           ? swordTiers[randi(0, swordTiers.length-1)]
           : bowTiers[randi(0, bowTiers.length-1)];
         if (kind === 'sword') state.pickups.push({x,y,kind,tier,r:8,points:randi(1,5)});
+        else if (kind === 'bow') state.pickups.push({x,y,kind,tier,r:8,points:randi(1,4)});
         else state.pickups.push({x,y,kind,tier,r:8});
       }
 
@@ -1947,7 +1986,7 @@
       }
       // 魔法の直撃ダメージ基礎値。実際の爆発ダメージはこの3倍。
       const map = {copper:{damage:5,arrows:8,speed:340,cooldown:0.9}, silver:{damage:10,arrows:14,speed:360,cooldown:0.8}, gold:{damage:20,arrows:24,speed:390,cooldown:0.65}};
-      return {tier:t, ...map[t], max:map[t].arrows, last:-9, powerLevel:0};
+      return {tier:t, ...map[t], max:map[t].arrows, last:-9, powerLevel:0, points:0, label:'カッパー'};
     }
 
     function handlePickups(){
@@ -2478,7 +2517,7 @@
       ctx.font = `${Math.max(10, Math.floor(8 + (it.r || 8) * 0.25))}px sans-serif`;
       ctx.textAlign = 'center';
       const label = it.kind==='sword' ? '剣'
-        : it.kind==='bow' ? '弓'
+        : it.kind==='bow' ? ('魔' + (it.points || ''))
         : it.kind==='heal' ? (it.mult && it.mult > 1 ? `H${it.mult}` : 'H')
         : it.kind==='mushroom' ? '茸'
         : 'A';
@@ -2535,7 +2574,7 @@
       ui.mushroomText.textContent = p.antidoteMushrooms;
       ui.weaponText.textContent = [
         p.sword ? `剣:${p.sword.label || '木'}(${p.sword.points || 0})` : '剣:木(0)',
-        p.bow ? `魔法:${p.bow.tier}+${p.bow.powerLevel || 0}` : '魔法なし'
+        p.bow ? `魔法:${p.bow.label || 'カッパー'}(${p.bow.points || 0})` : '魔法なし'
       ].join(' / ');
       ui.swordText.textContent = p.sword ? '∞' : '-';
       ui.bowText.textContent = p.bow ? `${p.bow.arrows}/${p.bow.max}` : '-';
@@ -2545,6 +2584,8 @@
         <span class="badge">防 ${p.defense}</span>
         <span class="badge">剣特性: ${p.sword ? (p.sword.label || '木') : '木'}</span>
         <span class="badge">剣pt: ${p.sword ? (p.sword.points || 0) : 0}</span>
+        <span class="badge">魔法特性: ${p.bow ? (p.bow.label || 'カッパー') : 'なし'}</span>
+        <span class="badge">魔法pt: ${p.bow ? (p.bow.points || 0) : 0}</span>
       `;
     }
 
