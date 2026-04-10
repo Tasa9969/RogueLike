@@ -1,4 +1,4 @@
-<!-- ver. 0.5.0 -->
+<!-- ver. 0.5.1 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -179,6 +179,7 @@
         <div>再開始: R</div>
         <div>剣成長: 木10 / 銅20 / 銀40 / リザード80 / 炎160 / ゴールド320</div>
         <div>ポーズ: P</div>
+        <div>ボス名: Lord</div>
       </div>
 
       <div class="panel hint">
@@ -194,7 +195,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.0</div>
+  <div id="versionTag">ver. 0.5.1</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -913,9 +914,27 @@
         if (room) addEnemy(room, type);
       });
 
+      const turretGroupChance = state.floor >= 10 ? Math.min(0.55, 0.10 + state.floor * 0.02) : 0.0;
+
       for(const room of rooms.slice(1,-1)){
         const c = randi(1, 2 + Math.floor(state.floor/3));
         for(let i=0;i<c;i++) addEnemy(room);
+
+        if (Math.random() < turretGroupChance && state.floor >= 8) {
+          const gx = room.cx * TILE;
+          const gy = room.cy * TILE;
+          const offsets = state.floor >= 15 ? [[-28,0],[28,0],[0,-28]] : [[-22,0],[22,0]];
+          for (const [ox, oy] of offsets) {
+            const tx = gx + ox, ty = gy + oy;
+            if (isFarFromStartSpawn(tx, ty, state.dungeon.start)) {
+              const t = makeEnemy('ranged', tx, ty, state.floor);
+              t.targeting = 'direct';
+              t.shotEvery = Math.max(0.35, t.shotEvery * (state.floor >= 15 ? 0.72 : 0.85));
+              enemies.push(t);
+            }
+          }
+        }
+
         if (Math.random()<0.2 + state.floor*0.015) {
           const sx = room.cx*TILE, sy = room.cy*TILE;
           if (!isFarFromStartSpawn(sx, sy, state.dungeon.start)) continue;
@@ -982,8 +1001,8 @@
         const profile = ENEMY_PROFILES[bossType] || ENEMY_PROFILES.skeleton;
         Object.assign(base, {
           bossBaseType: bossType,
-          name: floor === 1 ? `${profile.name}ジャイアント` : `${profile.name}ロード`,
-          englishName: floor === 1 ? `${profile.englishName} Giant` : `${profile.englishName} Lord`,
+          name: `${profile.name} Lord`,
+          englishName: `${profile.englishName} Lord`,
           shape: profile.shape,
           color: profile.color,
           accent: profile.accent,
@@ -1040,8 +1059,31 @@
         base.attack = Math.round((base.attack || 4) * 1.7);
         base.defense = Math.round((base.defense || 1) * 1.7);
         base.mass = Math.max(3, (base.mass || 1) * 2);
-        if (base.maxSpeed) base.maxSpeed *= 0.92;
-        if (base.shotEvery) base.shotEvery *= 0.85;
+        base.englishName = `${base.englishName || base.type} Lord`;
+        base.name = `${base.name || base.type} Lord`;
+
+        // 10F〜20Fは同じ系統でも色や速度で変化を付ける
+        if (floor >= 10 && floor <= 20) {
+          const variant = floor % 4;
+          if (variant === 0) {
+            base.color = '#e35d6a';
+            if (base.maxSpeed) base.maxSpeed *= 1.18;
+          } else if (variant === 1) {
+            base.color = '#d9a441';
+            if (base.shotEvery) base.shotEvery *= 0.72;
+          } else if (variant === 2) {
+            base.color = '#59c3c3';
+            if (base.maxSpeed) base.maxSpeed *= 0.88;
+            base.defense = Math.round(base.defense * 1.2);
+          } else {
+            base.color = '#b084f5';
+            if (base.maxSpeed) base.maxSpeed *= 1.08;
+            if (base.shotEvery) base.shotEvery *= 0.82;
+          }
+        } else {
+          if (base.maxSpeed) base.maxSpeed *= 0.92;
+          if (base.shotEvery) base.shotEvery *= 0.85;
+        }
       }
       base.gold = goldValue(base);
       return base;
