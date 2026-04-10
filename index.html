@@ -1,4 +1,4 @@
-<!-- ver. 0.5.1 -->
+<!-- ver. 0.5.2 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -195,7 +195,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.1</div>
+  <div id="versionTag">ver. 0.5.2</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -920,16 +920,17 @@
         const c = randi(1, 2 + Math.floor(state.floor/3));
         for(let i=0;i<c;i++) addEnemy(room);
 
-        if (Math.random() < turretGroupChance && state.floor >= 8) {
-          const gx = room.cx * TILE;
-          const gy = room.cy * TILE;
-          const offsets = state.floor >= 15 ? [[-28,0],[28,0],[0,-28]] : [[-22,0],[22,0]];
+        // 一部の射撃敵を固定砲台として追加する
+        if (state.floor >= 8 && Math.random() < (0.22 + Math.min(0.28, state.floor * 0.01))) {
+          const turretCount = state.floor >= 15 ? 3 : (state.floor >= 10 ? 2 : 1);
+          const offsets = turretCount >= 3 ? [[-28,0],[28,0],[0,-28]] : turretCount === 2 ? [[-22,0],[22,0]] : [[0,0]];
           for (const [ox, oy] of offsets) {
-            const tx = gx + ox, ty = gy + oy;
+            const tx = room.cx * TILE + ox, ty = room.cy * TILE + oy;
             if (isFarFromStartSpawn(tx, ty, state.dungeon.start)) {
               const t = makeEnemy('ranged', tx, ty, state.floor);
+              t.turret = true;
               t.targeting = 'direct';
-              t.shotEvery = Math.max(0.35, t.shotEvery * (state.floor >= 15 ? 0.72 : 0.85));
+              t.shotEvery = Math.max(0.30, (t.shotEvery || 1.6) * (state.floor >= 15 ? 0.65 : 0.85));
               enemies.push(t);
             }
           }
@@ -1729,6 +1730,33 @@
       }
     }
 
+    function explodeMagicProjectile(pr){
+      const radius = pr.blastRadius || state.player.r * 2;
+      createExplosion(pr.x, pr.y, radius, true, pr);
+
+      for (const e of state.enemies) {
+        if (!e.dead && dist(pr, e) < radius + e.r) {
+          damageEnemy(e, pr.damage, pr);
+        }
+      }
+      for (const s of state.spawners) {
+        if (!s.dead && dist(pr, s) < radius + s.r) {
+          s.hp -= pr.damage;
+          if (s.hp <= 0) s.dead = true;
+        }
+      }
+      for (const o of state.dungeon.objects) {
+        if (!o.dead && o.breakable) {
+          const cx = o.x + o.w/2, cy = o.y + o.h/2;
+          if (Math.hypot(pr.x - cx, pr.y - cy) < radius + Math.max(o.w,o.h)*0.5) {
+            o.hp -= pr.damage;
+            if (o.hp <= 0) o.dead = true;
+          }
+        }
+      }
+      playSfx('explode');
+    }
+
     function handleProjectiles(){
       const p = state.player;
       for(const pr of state.projectiles){
@@ -2412,11 +2440,18 @@
     function drawStairs(x,y,unlocked){
       ctx.save();
       ctx.translate(x,y);
-      ctx.fillStyle = unlocked ? '#e5d36d' : '#a0a8b8';
-      for(let i=0;i<4;i++) ctx.fillRect(-14+i*4,-8+i*5,28-i*8,4);
+      // 床色に埋もれないよう、少し大きめ + 黒い影
+      ctx.fillStyle = 'rgba(0,0,0,0.30)';
+      for(let i=0;i<4;i++) ctx.fillRect(-18+i*5+3,-11+i*6+3,36-i*10,5);
+      if (!unlocked) {
+        ctx.fillRect(-5+3,-23+3,10,12);
+      }
+
+      ctx.fillStyle = unlocked ? '#efe27b' : '#c3cad8';
+      for(let i=0;i<4;i++) ctx.fillRect(-18+i*5,-11+i*6,36-i*10,5);
       if (!unlocked) {
         ctx.fillStyle = '#d95d5d';
-        ctx.fillRect(-4,-18,8,10);
+        ctx.fillRect(-5,-23,10,12);
       }
       ctx.restore();
     }
