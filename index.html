@@ -1,4 +1,4 @@
-<!-- ver. 0.4.4 -->
+<!-- ver. 0.4.5 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -193,7 +193,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.4.4</div>
+  <div id="versionTag">ver. 0.4.5</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2049,6 +2049,79 @@
       ctx.beginPath();
       ctx.moveTo(0,0); ctx.lineTo(p.r+5,0); ctx.stroke();
       ctx.restore();
+    }
+
+    function drawShapeOutline(shape, r, boss=false, jagged=false, accent='#fff', dormant=false){
+      ctx.beginPath();
+      if (jagged) {
+        const spikes = 14;
+        for (let i = 0; i < spikes * 2; i++) {
+          const a = (i / (spikes * 2)) * Math.PI * 2;
+          const rr = i % 2 === 0 ? r * 1.08 : r * 0.82;
+          const px = Math.cos(a) * rr;
+          const py = Math.sin(a) * rr;
+          if (!i) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+      } else if (shape==='circle') {
+        ctx.arc(0,0,r,0,Math.PI*2);
+      } else if (shape==='dome') {
+        ctx.arc(0, r*0.15, r, Math.PI, Math.PI*2);
+        ctx.lineTo(-r, r*0.2);
+        ctx.quadraticCurveTo(0, r*0.65, r, r*0.2);
+        ctx.closePath();
+      } else if (shape==='square') {
+        ctx.rect(-r,-r,r*2,r*2);
+      } else if (shape==='rectangle') {
+        ctx.rect(-r*1.15,-r*0.7,r*2.3,r*1.4);
+      } else if (shape==='triangle') {
+        ctx.moveTo(r,0); ctx.lineTo(-r,-r*0.8); ctx.lineTo(-r,r*0.8); ctx.closePath();
+      } else if (shape==='diamond') {
+        ctx.moveTo(r,0); ctx.lineTo(0,-r); ctx.lineTo(-r,0); ctx.lineTo(0,r); ctx.closePath();
+      } else if (shape==='oval') {
+        ctx.ellipse(0,0,r*1.18,r*0.78,0,0,Math.PI*2);
+      } else if (shape==='hex') {
+        for(let i=0;i<6;i++){
+          const a = i/6*Math.PI*2;
+          const px = Math.cos(a)*r, py = Math.sin(a)*r;
+          if (!i) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        }
+        ctx.closePath();
+      } else if (shape==='cage') {
+        ctx.rect(-r*0.6,-r,r*1.2,r*2);
+      } else if (shape==='blob') {
+        for (let i = 0; i < 10; i++) {
+          const a = i/10*Math.PI*2;
+          const rr = r * (0.86 + (i%2)*0.18);
+          const px = Math.cos(a) * rr;
+          const py = Math.sin(a) * rr;
+          if (!i) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+      } else if (shape==='fan') {
+        ctx.moveTo(r,0); ctx.lineTo(-r*0.85,-r*0.7); ctx.lineTo(-r*0.55,0); ctx.lineTo(-r*0.85,r*0.7); ctx.closePath();
+      } else if (shape==='cylinder') {
+        ctx.ellipse(0,-r*0.72,r*0.7,r*0.26,0,0,Math.PI*2);
+        ctx.moveTo(-r*0.7,-r*0.72);
+        ctx.lineTo(-r*0.7,r*0.72);
+        ctx.ellipse(0,r*0.72,r*0.7,r*0.26,0,Math.PI,0);
+        ctx.lineTo(r*0.7,-r*0.72);
+        ctx.closePath();
+      } else if (shape==='star') {
+        const spikes = 6;
+        for(let i=0;i<spikes*2;i++){
+          const a = i/(spikes*2)*Math.PI*2 - Math.PI/2;
+          const rr = i%2===0 ? r : r*0.45;
+          const px = Math.cos(a)*rr, py = Math.sin(a)*rr;
+          if(!i) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        }
+        ctx.closePath();
+      } else if (shape==='beholder') {
+        ctx.arc(0,0,r,0,Math.PI*2);
+      } else {
+        ctx.arc(0,0,r,0,Math.PI*2);
+      }
+      ctx.stroke();
     }
 
     function drawShape(shape, r, boss=false, jagged=false, accent='#fff', dormant=false){
