@@ -644,6 +644,8 @@
       return 5.0 - ((safeFloor - 1) * 0.8);
     }
 
+    const MAGIC_GLOBAL_DAMAGE_MULTIPLIER = 3;
+
     function refreshMagicWeapon(bow, floor){
       if (!bow) return null;
       const effectivePoints = effectiveMagicPoints(bow.points || 0, floor);
@@ -652,7 +654,7 @@
       bow.label = magicLabelFromPoints(effectivePoints);
       bow.baseDamage = magicDamageFromPoints(effectivePoints);
       bow.damageMultiplier = openingMagicDamageMultiplier(floor);
-      bow.damage = bow.baseDamage * bow.damageMultiplier;
+      bow.damage = bow.baseDamage * bow.damageMultiplier * MAGIC_GLOBAL_DAMAGE_MULTIPLIER;
       bow.speed = 340 + Math.min(55, effectivePoints * 0.35);
       bow.cooldown = Math.max(0.55, 0.92 - Math.min(0.27, effectivePoints * 0.0022));
       return bow;
@@ -2049,7 +2051,7 @@
         p.xp -= p.xpNext;
         p.level++;
         p.xpNext = Math.floor((p.xpNext / LEVEL_XP_MULT) * 1.3 + 4) * LEVEL_XP_MULT;
-        p.hpMax += 4;
+        p.hpMax += 12;
         p.attack += 1;
         p.defense += 1;
         p.hp = Math.min(p.hpMax, p.hp + Math.ceil(p.hpMax*0.2));
