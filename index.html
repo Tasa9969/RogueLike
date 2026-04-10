@@ -1,4 +1,4 @@
-<!-- ver. 0.4.2 -->
+<!-- ver. 0.4.3 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -193,7 +193,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.4.2</div>
+  <div id="versionTag">ver. 0.4.3</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1992,6 +1992,13 @@
         ctx.translate(x,y);
       }
       ctx.rotate(e.angle || 0);
+      // 敵の影。右下に少しずらして先に描く。
+      ctx.save();
+      ctx.translate(4,4);
+      ctx.fillStyle = 'rgba(0,0,0,0.36)';
+      drawShape(e.shape, e.r * 1.03, false, e.poison, e.accent, e.dormant);
+      ctx.restore();
+
       ctx.fillStyle = e.damageFlash > 0 ? '#ffffff' : e.color;
       drawShape(e.shape, e.r, e.boss, e.poison, e.accent, e.dormant);
       if (e.boss) {
@@ -2031,7 +2038,7 @@
       ctx.save();
       ctx.translate(x,y);
       ctx.rotate(p.angle);
-      // 敵の影は視認性向上用に少し濃くする。
+      // プレイヤーの影。
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
       ctx.save();
       ctx.translate(2,2);
