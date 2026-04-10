@@ -1,4 +1,4 @@
-<!-- ver. 0.4.5 -->
+<!-- ver. 0.4.6 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -193,7 +193,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.4.5</div>
+  <div id="versionTag">ver. 0.4.6</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -494,7 +494,8 @@
     // ------------------------------
     const TILE = 32;                 // 1マスのピクセルサイズ
     const CONTACT_INTERVAL = 0.2;    // 接触ダメージの再発生間隔(秒)
-    const FLOOR_HEAL_RATIO = 0.25;   // 階段到達時の回復割合
+    const FLOOR_HEAL_RATIO = 0.25;
+    const FLOOR_SAFE_SPAWN_RADIUS = 220; // フロア開始位置の周囲には敵を置かない半径   // 階段到達時の回復割合
     const SWORD_MIN_REACH = 12;      // 剣が体の前に出る最短距離
     const SWORD_MAX_REACH = 84;      // 剣を押しっぱなしにした時の最長距離
     const SWORD_EXTEND_TIME = 0.12;  // 剣が伸び切るまでの時間
@@ -835,6 +836,10 @@
 
     // フロア生成後の実体配置。
     // 敵、飛び道具、アイテム、巣をここで初期化する。
+    function isFarFromStartSpawn(x, y, start){
+      return Math.hypot(x - start.x, y - start.y) >= FLOOR_SAFE_SPAWN_RADIUS;
+    }
+
     function spawnFloor(state){
       state.dungeon = createDungeon(state.floor);
       const p = state.player;
@@ -1768,11 +1773,11 @@
           lizard:{damage:14,durability:Infinity,cooldown:0.37,permanent:true},
           gold:{damage:16,durability:Infinity,cooldown:0.35,permanent:true}
         };
-        return {tier:t, ...map[t], max:map[t].durability, last:-9};
+        return {tier:t, ...map[t], max:map[t].durability, last:-9, powerLevel:0};
       }
       // 魔法の直撃ダメージ基礎値。実際の爆発ダメージはこの3倍。
       const map = {copper:{damage:5,arrows:8,speed:340,cooldown:0.9}, silver:{damage:10,arrows:14,speed:360,cooldown:0.8}, gold:{damage:20,arrows:24,speed:390,cooldown:0.65}};
-      return {tier:t, ...map[t], max:map[t].arrows, last:-9};
+      return {tier:t, ...map[t], max:map[t].arrows, last:-9, powerLevel:0};
     }
 
     function handlePickups(){
@@ -1789,7 +1794,13 @@
           }
           if (item.kind==='antidote') p.poisonUntil = 0;
           if (item.kind==='mushroom') p.antidoteMushrooms++;
-          if (item.kind==='sword') p.sword = makeWeapon('sword', item.tier);
+          if (item.kind==='sword') {
+            if (!p.sword) p.sword = makeWeapon('sword', item.tier);
+            p.sword.powerLevel = (p.sword.powerLevel || 0) + 1;
+            p.sword.damage += 1;
+            if (p.sword.cooldown) p.sword.cooldown = Math.max(0.12, p.sword.cooldown * 0.98);
+            p.sword.tier = item.tier;
+          }
           if (item.kind==='bow') {
             const pickupBow = makeWeapon('bow', item.tier);
             if (p.bow) {
@@ -2321,8 +2332,8 @@
       ui.poisonText.textContent = state.t < p.poisonUntil ? `${Math.ceil(p.poisonUntil-state.t)}秒` : 'なし';
       ui.mushroomText.textContent = p.antidoteMushrooms;
       ui.weaponText.textContent = [
-        p.sword ? `剣:${p.sword.tier}` : '剣:wood',
-        p.bow ? `魔法:${p.bow.tier}` : '魔法なし'
+        p.sword ? `剣:${p.sword.tier}+${p.sword.powerLevel || 0}` : '剣:wood',
+        p.bow ? `魔法:${p.bow.tier}+${p.bow.powerLevel || 0}` : '魔法なし'
       ].join(' / ');
       ui.swordText.textContent = p.sword ? '∞' : '-';
       ui.bowText.textContent = p.bow ? `${p.bow.arrows}/${p.bow.max}` : '-';
