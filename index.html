@@ -1,4 +1,4 @@
-<!-- ver. 0.4.1 -->
+<!-- ver. 0.4.2 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -193,7 +193,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.4.1</div>
+  <div id="versionTag">ver. 0.4.2</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2031,8 +2031,8 @@
       ctx.save();
       ctx.translate(x,y);
       ctx.rotate(p.angle);
-      // 敵の影は視認性向上用にごく薄くする。
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      // 敵の影は視認性向上用に少し濃くする。
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
       ctx.save();
       ctx.translate(2,2);
       drawShape(p.shape, p.r, false, false);
