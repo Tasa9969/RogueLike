@@ -1,4 +1,4 @@
-<!-- ver. 0.4.9 -->
+<!-- ver. 0.5.0 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -177,6 +177,7 @@
         <div>魔法: K（押すたびに1発、複数同時存在可）（silverは爆発半径2倍、goldは4倍）</div>
         <div>毒消しキノコ: L</div>
         <div>再開始: R</div>
+        <div>剣成長: 木10 / 銅20 / 銀40 / リザード80 / 炎160 / ゴールド320</div>
         <div>ポーズ: P</div>
       </div>
 
@@ -193,7 +194,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.4.9</div>
+  <div id="versionTag">ver. 0.5.0</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -574,6 +575,35 @@
           overlay.className = '';
         }, duration);
       }
+    }
+
+    function swordTierFromPoints(points){
+      if (points >= 320) return 'gold';
+      if (points >= 160) return 'flame';
+      if (points >= 80) return 'lizard';
+      if (points >= 40) return 'silver';
+      if (points >= 20) return 'copper';
+      if (points >= 10) return 'wood';
+      return 'wood';
+    }
+
+    function swordLabelFromPoints(points){
+      if (points >= 320) return 'ゴールド';
+      if (points >= 160) return '炎';
+      if (points >= 80) return 'リザード';
+      if (points >= 40) return '銀';
+      if (points >= 20) return '銅';
+      return '木';
+    }
+
+    function swordDamageFromPoints(points){
+      if (points >= 320) return 12;
+      if (points >= 160) return 10;
+      if (points >= 80) return 8;
+      if (points >= 40) return 6;
+      if (points >= 20) return 4;
+      if (points >= 10) return 2;
+      return 1;
     }
 
     function createPlayer(){
@@ -1768,7 +1798,8 @@
         const tier = kind === 'sword'
           ? swordTiers[randi(0, swordTiers.length-1)]
           : bowTiers[randi(0, bowTiers.length-1)];
-        state.pickups.push({x,y,kind,tier,r:8});
+        if (kind === 'sword') state.pickups.push({x,y,kind,tier,r:8,points:randi(1,5)});
+        else state.pickups.push({x,y,kind,tier,r:8});
       }
 
       // HP回復アイテム。回復量は 1x / 2x / 4x / 8x、出現率は逆比例。
@@ -1806,7 +1837,7 @@
           lizard:{damage:14,durability:Infinity,cooldown:0.37,permanent:true},
           gold:{damage:16,durability:Infinity,cooldown:0.35,permanent:true}
         };
-        return {tier:t, ...map[t], max:map[t].durability, last:-9, powerLevel:0};
+        return {tier:t, ...map[t], max:map[t].durability, last:-9, powerLevel:0, points:0, label:'木'};
       }
       // 魔法の直撃ダメージ基礎値。実際の爆発ダメージはこの3倍。
       const map = {copper:{damage:5,arrows:8,speed:340,cooldown:0.9}, silver:{damage:10,arrows:14,speed:360,cooldown:0.8}, gold:{damage:20,arrows:24,speed:390,cooldown:0.65}};
@@ -1828,11 +1859,14 @@
           if (item.kind==='antidote') p.poisonUntil = 0;
           if (item.kind==='mushroom') p.antidoteMushrooms++;
           if (item.kind==='sword') {
-            if (!p.sword) p.sword = makeWeapon('sword', item.tier);
-            p.sword.powerLevel = (p.sword.powerLevel || 0) + 1;
-            p.sword.damage += 1;
-            if (p.sword.cooldown) p.sword.cooldown = Math.max(0.12, p.sword.cooldown * 0.98);
-            p.sword.tier = item.tier;
+            if (!p.sword) p.sword = makeWeapon('sword', 'wood');
+            const gained = item.points || randi(1, 5);
+            p.sword.points = (p.sword.points || 0) + gained;
+            p.sword.powerLevel = (p.sword.powerLevel || 0) + gained;
+            p.sword.tier = swordTierFromPoints(p.sword.points);
+            p.sword.label = swordLabelFromPoints(p.sword.points);
+            p.sword.damage = swordDamageFromPoints(p.sword.points);
+            p.sword.cooldown = Math.max(0.12, 0.40 - Math.min(0.16, (p.sword.points || 0) * 0.001));
           }
           if (item.kind==='bow') {
             const pickupBow = makeWeapon('bow', item.tier);
@@ -2365,7 +2399,7 @@
       ui.poisonText.textContent = state.t < p.poisonUntil ? `${Math.ceil(p.poisonUntil-state.t)}秒` : 'なし';
       ui.mushroomText.textContent = p.antidoteMushrooms;
       ui.weaponText.textContent = [
-        p.sword ? `剣:${p.sword.tier}+${p.sword.powerLevel || 0}` : '剣:wood',
+        p.sword ? `剣:${p.sword.label || '木'}(${p.sword.points || 0})` : '剣:木(0)',
         p.bow ? `魔法:${p.bow.tier}+${p.bow.powerLevel || 0}` : '魔法なし'
       ].join(' / ');
       ui.swordText.textContent = p.sword ? '∞' : '-';
@@ -2374,6 +2408,8 @@
         <span class="badge">形状: ${p.shape}</span>
         <span class="badge">攻 ${p.attack}</span>
         <span class="badge">防 ${p.defense}</span>
+        <span class="badge">剣特性: ${p.sword ? (p.sword.label || '木') : '木'}</span>
+        <span class="badge">剣pt: ${p.sword ? (p.sword.points || 0) : 0}</span>
       `;
     }
 
