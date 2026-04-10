@@ -1,4 +1,4 @@
-<!-- ver. 0.5.8 -->
+<!-- ver. 0.5.9 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.8</div>
+  <div id="versionTag">ver. 0.5.9</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -611,22 +611,42 @@
     function magicTierFromPoints(points){
       if (points >= 160) return 'gold';
       if (points >= 80) return 'silver';
-      if (points >= 30) return 'copper';
       return 'copper';
     }
 
     function magicLabelFromPoints(points){
       if (points >= 160) return 'ゴールド';
       if (points >= 80) return 'シルバー';
-      if (points >= 30) return 'カッパー';
       return 'カッパー';
     }
 
     function magicDamageFromPoints(points){
       if (points >= 160) return 7;
       if (points >= 80) return 5;
-      if (points >= 30) return 3;
+      if (points >= 40) return 4;
+      if (points >= 15) return 3;
       return 2;
+    }
+
+    function floorMagicBonus(floor){
+      const safeFloor = Math.max(1, floor || 1);
+      return Math.min(160, Math.round((safeFloor - 1) * (80 / 19)));
+    }
+
+    function effectiveMagicPoints(rawPoints, floor){
+      return Math.max(0, (rawPoints || 0) + floorMagicBonus(floor));
+    }
+
+    function refreshMagicWeapon(bow, floor){
+      if (!bow) return null;
+      const effectivePoints = effectiveMagicPoints(bow.points || 0, floor);
+      bow.effectivePoints = effectivePoints;
+      bow.tier = magicTierFromPoints(effectivePoints);
+      bow.label = magicLabelFromPoints(effectivePoints);
+      bow.damage = magicDamageFromPoints(effectivePoints);
+      bow.speed = 340 + Math.min(55, effectivePoints * 0.35);
+      bow.cooldown = Math.max(0.55, 0.92 - Math.min(0.27, effectivePoints * 0.0022));
+      return bow;
     }
 
     function createPlayer(){
@@ -654,7 +674,7 @@
         key: false,
         sword: {tier:'wood', damage:2, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
-        bow: {tier:'silver', damage:10, arrows:14, max:14, speed:360, cooldown:0.8, last:-9},
+        bow: {tier:'copper', damage:2, arrows:10, max:10, speed:340, cooldown:0.92, last:-9, points:0, effectivePoints:0, label:'カッパー'},
       };
     }
 
@@ -1013,7 +1033,7 @@
       const projSpeed = [180, 220, 260, 310, 360, 420][tier];
       const damage = [1, 2, 3, 4, 6, 8][tier];
       const hp = [10, 14, 18, 24, 30, 40][tier];
-      return {
+      const enemy = {
         type: 'floorTurret',
         x, y, vx:0, vy:0, angle:0, lastContact:0, lastShot:0,
         damageFlash:0, dead:false, deathAnim:0, hpBarVisible:false,
@@ -1036,6 +1056,8 @@
         shotEvery: Math.max(0.22, shotEveryBase - floor * 0.005),
         projectileSpeed: projSpeed,
       };
+      enemy.gold = goldValue(enemy);
+      return enemy;
     }
 
     function makeEnemy(type,x,y,floor,forceBoss=false){
@@ -1169,6 +1191,7 @@
         floorSafeUntil: 0,
         floorChangingUntil: 0,
       };
+      refreshMagicWeapon(state.player.bow, state.floor);
       spawnFloor(state);
     }
 
@@ -1873,8 +1896,9 @@
       if (e.hp <= 0 && !e.dead){
         e.dead = true;
         e.deathAnim = 0.5;
-        state.player.gold += e.gold;
-        state.player.xp += e.gold;
+        const reward = Number.isFinite(e.gold) ? e.gold : goldValue(e);
+        state.player.gold += reward;
+        state.player.xp += reward;
         if (e.boss) {
           state.player.key = true;
           showOverlay('鍵を入手');
@@ -1962,8 +1986,8 @@
         return {tier:t, ...map[t], max:map[t].durability, last:-9, powerLevel:0, points:0, label:'木'};
       }
       // 魔法の直撃ダメージ基礎値。実際の爆発ダメージはこの3倍。
-      const map = {copper:{damage:5,arrows:8,speed:340,cooldown:0.9}, silver:{damage:10,arrows:14,speed:360,cooldown:0.8}, gold:{damage:20,arrows:24,speed:390,cooldown:0.65}};
-      return {tier:t, ...map[t], max:map[t].arrows, last:-9, powerLevel:0, points:0, label:'カッパー'};
+      const map = {copper:{arrows:8}, silver:{arrows:14}, gold:{arrows:24}};
+      return refreshMagicWeapon({tier:t, damage:2, speed:340, cooldown:0.92, ...map[t], max:map[t].arrows, last:-9, powerLevel:0, points:0, effectivePoints:0, label:'カッパー'}, state ? state.floor : 1);
     }
 
     function handlePickups(){
@@ -1992,17 +2016,16 @@
           }
           if (item.kind==='bow') {
             const pickupBow = makeWeapon('bow', item.tier);
+            const gained = item.points || randi(1, 4);
             if (p.bow) {
               p.bow.arrows += pickupBow.arrows;
               p.bow.max += pickupBow.max;
-              if (pickupBow.damage > p.bow.damage) {
-                p.bow.tier = pickupBow.tier;
-                p.bow.damage = pickupBow.damage;
-                p.bow.speed = pickupBow.speed;
-                p.bow.cooldown = pickupBow.cooldown;
-              }
+              p.bow.points = (p.bow.points || 0) + gained;
+              refreshMagicWeapon(p.bow, state.floor);
             } else {
               p.bow = pickupBow;
+              p.bow.points = gained;
+              refreshMagicWeapon(p.bow, state.floor);
             }
           }
           playSfx('pickup');
@@ -2048,6 +2071,7 @@
         setTimeout(() => {
           if (!state || state.gameOver) return;
           state.floor++;
+      refreshMagicWeapon(state.player && state.player.bow, state.floor);
           p.hp = Math.min(p.hpMax, p.hp + Math.floor(p.hpMax * FLOOR_HEAL_RATIO));
           spawnFloor(state);
           state.floorChangingUntil = 0;
@@ -2544,14 +2568,14 @@
       ui.floorText.textContent = state.floor;
       ui.hpText.textContent = `${Math.ceil(p.hp)} / ${p.hpMax}`;
       ui.hpFill.style.width = `${(p.hp/p.hpMax)*100}%`;
-      ui.levelText.textContent = `${p.level} (${p.xp}/${p.xpNext})`;
+      ui.levelText.textContent = `${p.level} (${Number.isFinite(p.xp) ? p.xp : 0}/${Number.isFinite(p.xpNext) ? p.xpNext : 0})`;
       ui.goldText.textContent = p.gold;
       ui.keyText.textContent = p.key ? 'あり' : 'なし';
       ui.poisonText.textContent = state.t < p.poisonUntil ? `${Math.ceil(p.poisonUntil-state.t)}秒` : 'なし';
       ui.mushroomText.textContent = p.antidoteMushrooms;
       ui.weaponText.textContent = [
         p.sword ? `剣:${p.sword.label || '木'}(${p.sword.points || 0})` : '剣:木(0)',
-        p.bow ? `魔法:${p.bow.label || 'カッパー'}(${p.bow.points || 0})` : '魔法なし'
+        p.bow ? `魔法:${p.bow.label || 'カッパー'}(${p.bow.points || 0}+${floorMagicBonus(state.floor)})` : '魔法なし'
       ].join(' / ');
       ui.swordText.textContent = p.sword ? '∞' : '-';
       ui.bowText.textContent = p.bow ? `${p.bow.arrows}/${p.bow.max}` : '-';
@@ -2562,7 +2586,7 @@
         <span class="badge">剣特性: ${p.sword ? (p.sword.label || '木') : '木'}</span>
         <span class="badge">剣pt: ${p.sword ? (p.sword.points || 0) : 0}</span>
         <span class="badge">魔法特性: ${p.bow ? (p.bow.label || 'カッパー') : 'なし'}</span>
-        <span class="badge">魔法pt: ${p.bow ? (p.bow.points || 0) : 0}</span>
+        <span class="badge">魔法pt: ${p.bow ? ((p.bow.points || 0) + '+' + floorMagicBonus(state.floor) + '=' + (p.bow.effectivePoints || 0)) : 0}</span>
       `;
     }
 
