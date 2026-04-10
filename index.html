@@ -1,4 +1,4 @@
-<!-- ver. 0.5.2 -->
+<!-- ver. 0.5.3 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -195,7 +195,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.2</div>
+  <div id="versionTag">ver. 0.5.3</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1881,12 +1881,18 @@
       ];
       for (const heal of healDrops) {
         if (Math.random() < heal.chance) {
+          // H4/H8 が大きすぎた原因は、ここで半径を 8 * mult に固定していたため。
+          // 指示どおり H4/H8 は半分のサイズにする。
+          let rr = 8 * heal.mult;
+          if (heal.mult === 4) rr *= 0.5;
+          if (heal.mult === 8) rr *= 0.5;
+
           state.pickups.push({
             x, y,
             kind:'heal',
             mult: heal.mult,
             healAmount: 5 * heal.mult,
-            r: 8 * heal.mult,
+            r: rr,
           });
         }
       }
