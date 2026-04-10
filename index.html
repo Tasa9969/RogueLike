@@ -1,4 +1,4 @@
-<!-- ver. 0.5.23 -->
+<!-- ver. 0.5.24 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.23</div>
+  <div id="versionTag">ver. 0.5.24</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -314,7 +314,7 @@
       playSfx(scale > 1.2 ? 'explode' : 'hit');
     }
 
-    function addRainbowBombExplosion(x, y, radius, playExplodeSfx = true){
+    function addRainbowBombExplosion(x, y, radius){
       // 魔法専用。自機サイズの約2倍を基準に、レインボーで点滅しながら丸く広がる。
       const palette = ['#ff4d4d','#ff9f1c','#ffe66d','#4dff88','#4dd2ff','#6c63ff','#ff66d8'];
       state.effects.push({
@@ -325,7 +325,7 @@
         radius,
         palette,
       });
-      if (playExplodeSfx) playSfx('explode');
+      playSfx('explode');
     }
 
     function addFloatingText(x, y, text, color = '#ffffff', scale = 1) {
@@ -1810,8 +1810,7 @@
       pr.exploded = true;
       pr.life = -1;
       const blastRadius = pr.blastRadius || (state.player.r * 2);
-      const suppressExplodeSfx = !!(pr.from === 'player' && pr.kind === 'bomb');
-      addRainbowBombExplosion(pr.x, pr.y, blastRadius, !suppressExplodeSfx);
+      addRainbowBombExplosion(pr.x, pr.y, blastRadius);
 
       for (const e of state.enemies) {
         if (e.dead) continue;
@@ -1899,9 +1898,10 @@
       e.hpBarVisible = true;
 
       const isPlayerBomb = !!(source && source.kind === 'bomb' && source.from === 'player');
+      const killedNow = wasAlive && e.hp <= 0;
 
       if (isPlayerBomb) {
-        playSfx(source.killSfx || 'bombkill');
+        if (killedNow) playSfx(source.killSfx || 'bombkill');
       } else {
         playSfx('hit');
       }
