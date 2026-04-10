@@ -1,4 +1,4 @@
-<!-- ver. 0.4.7 -->
+<!-- ver. 0.4.8 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -193,7 +193,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.4.7</div>
+  <div id="versionTag">ver. 0.4.8</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -866,9 +866,13 @@
       function addEnemy(room, typeOverride) {
         const types = availableEnemyTypesForFloor(state.floor);
         const type = typeOverride || types[randi(0, types.length-1)];
-        const x = (room.cx + rand(-room.w/3, room.w/3))*TILE;
-        const y = (room.cy + rand(-room.h/3, room.h/3))*TILE;
-        enemies.push(makeEnemy(type, x, y, state.floor));
+        for (let tries = 0; tries < 24; tries++) {
+          const x = (room.cx + rand(-room.w/3, room.w/3))*TILE;
+          const y = (room.cy + rand(-room.h/3, room.h/3))*TILE;
+          if (!isFarFromStartSpawn(x, y, state.dungeon.start)) continue;
+          enemies.push(makeEnemy(type, x, y, state.floor));
+          return;
+        }
       }
 
       // まず各フロア帯で出る5種類を最低1体ずつ配置して、出現表どおりの顔ぶれを保証する。
@@ -883,9 +887,11 @@
         const c = randi(1, 2 + Math.floor(state.floor/3));
         for(let i=0;i<c;i++) addEnemy(room);
         if (Math.random()<0.2 + state.floor*0.015) {
+          const sx = room.cx*TILE, sy = room.cy*TILE;
+          if (!isFarFromStartSpawn(sx, sy, state.dungeon.start)) continue;
           spawners.push({
-            x:room.cx*TILE,
-            y:room.cy*TILE,
+            x:sx,
+            y:sy,
             r:18,
             hp:16,
             maxHp:16,
@@ -909,12 +915,10 @@
       }
       enemies.push(makeEnemy(bossType, bossX, bossY, state.floor, true));
 
-      enemies = enemies.filter(e => isFarFromStartSpawn(e.x, e.y, state.dungeon.start));
-      spawners = spawners.filter(s => isFarFromStartSpawn(s.x, s.y, state.dungeon.start));
-      state.enemies = enemies;
+      state.enemies = enemies.filter(e => isFarFromStartSpawn(e.x, e.y, state.dungeon.start));
+      state.spawners = spawners.filter(s => isFarFromStartSpawn(s.x, s.y, state.dungeon.start));
       state.projectiles = projectiles;
       state.pickups = pickups;
-      state.spawners = spawners;
       state.swordSwing = null;
       addFloorTransition();
       playSfx('floor');
