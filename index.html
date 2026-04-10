@@ -1,4 +1,4 @@
-<!-- ver. 0.4.8 -->
+<!-- ver. 0.4.9 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -193,7 +193,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.4.8</div>
+  <div id="versionTag">ver. 0.4.9</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -495,8 +495,8 @@
     const TILE = 32;                 // 1マスのピクセルサイズ
     const CONTACT_INTERVAL = 0.2;    // 接触ダメージの再発生間隔(秒)
     const FLOOR_HEAL_RATIO = 0.25;
-    const FLOOR_SAFE_SPAWN_RADIUS_MIN = 420; // 最低安全半径
-    const FLOOR_SAFE_SPAWN_RADIUS_PAD = 48; // 画面半分ベースに少し余裕を足す   // 階段到達時の回復割合
+    const FLOOR_SAFE_SPAWN_RADIUS_MIN = 140; // 最低安全半径（前回の1/3）
+    const FLOOR_SAFE_SPAWN_RADIUS_PAD = 16; // 前回の1/3   // 階段到達時の回復割合
     const SWORD_MIN_REACH = 12;      // 剣が体の前に出る最短距離
     const SWORD_MAX_REACH = 84;      // 剣を押しっぱなしにした時の最長距離
     const SWORD_EXTEND_TIME = 0.12;  // 剣が伸び切るまでの時間
@@ -841,7 +841,7 @@
       // 画面の半分くらいを安全半径にする
       const halfViewW = BASE_VIEW_W * 0.5;
       const halfViewH = BASE_VIEW_H * 0.5;
-      const dynamicRadius = Math.hypot(halfViewW, halfViewH) + FLOOR_SAFE_SPAWN_RADIUS_PAD;
+      const dynamicRadius = (Math.hypot(halfViewW, halfViewH) + FLOOR_SAFE_SPAWN_RADIUS_PAD) / 3;
       return Math.max(FLOOR_SAFE_SPAWN_RADIUS_MIN, dynamicRadius);
     }
 
@@ -909,13 +909,25 @@
       const bossType = bossTypeForFloor(state.floor);
       let bossX = state.dungeon.stairs.x - TILE*2;
       let bossY = state.dungeon.stairs.y;
+
       if (!isFarFromStartSpawn(bossX, bossY, state.dungeon.start)) {
         bossX = state.dungeon.stairs.x + TILE*2;
         bossY = state.dungeon.stairs.y + TILE*2;
       }
+      if (!isFarFromStartSpawn(bossX, bossY, state.dungeon.start)) {
+        for (const room of rooms.slice().reverse()) {
+          const tx = room.cx * TILE;
+          const ty = room.cy * TILE;
+          if (isFarFromStartSpawn(tx, ty, state.dungeon.start)) {
+            bossX = tx;
+            bossY = ty;
+            break;
+          }
+        }
+      }
       enemies.push(makeEnemy(bossType, bossX, bossY, state.floor, true));
 
-      state.enemies = enemies.filter(e => isFarFromStartSpawn(e.x, e.y, state.dungeon.start));
+      state.enemies = enemies.filter(e => e.boss || isFarFromStartSpawn(e.x, e.y, state.dungeon.start));
       state.spawners = spawners.filter(s => isFarFromStartSpawn(s.x, s.y, state.dungeon.start));
       state.projectiles = projectiles;
       state.pickups = pickups;
