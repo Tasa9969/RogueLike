@@ -1,4 +1,4 @@
-<!-- ver. 0.4.0 -->
+<!-- ver. 0.4.1 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -193,7 +193,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.4.0</div>
+  <div id="versionTag">ver. 0.4.1</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -980,9 +980,12 @@
     }
 
     function bossTypeForFloor(floor){
+      // ボスはその時点の登場モンスターグループの弱い方から、階ごとに1体ずつ進める。
+      // 例: 1F slime, 2F goblin, 3F kobold ...
       const types = availableEnemyTypesForFloor(floor);
-      // 弱い側から順にボス化。1Fなら最初の出現帯の末尾、以後スライドに追従。
-      return types[0] || 'slime';
+      if (!types || !types.length) return 'slime';
+      const index = Math.max(0, Math.min(types.length - 1, floor - 1));
+      return types[index];
     }
 
     function init(){
@@ -2028,9 +2031,10 @@
       ctx.save();
       ctx.translate(x,y);
       ctx.rotate(p.angle);
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      // 敵の影は視認性向上用にごく薄くする。
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
       ctx.save();
-      ctx.translate(3,3);
+      ctx.translate(2,2);
       drawShape(p.shape, p.r, false, false);
       ctx.restore();
       ctx.fillStyle = state.t < p.poisonUntil ? '#c2ffd2' : '#f8f8f0';
