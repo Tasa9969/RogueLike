@@ -1,4 +1,4 @@
-<!-- ver. 0.5.6 -->
+<!-- ver. 0.5.7 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.6</div>
+  <div id="versionTag">ver. 0.5.7</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1456,8 +1456,8 @@
             explodeMagicProjectile(pr);
           } else {
             addPastelExplosion(pr.x, pr.y, 0.9);
+            pr.life = -1;
           }
-          pr.life = -1;
         }
       }
       state.projectiles = state.projectiles.filter(p=>p.life>0);
@@ -1789,31 +1789,9 @@
     }
 
     function explodeMagicProjectile(pr){
-      // 魔法弾は敵接触だけでなく、壁に当たった時もここを通して範囲爆発させる。
-      const radius = pr.blastRadius || state.player.r * 2;
-      createExplosion(pr.x, pr.y, radius, true, pr);
-
-      for (const e of state.enemies) {
-        if (!e.dead && dist(pr, e) < radius + e.r) {
-          damageEnemy(e, pr.damage, pr);
-        }
-      }
-      for (const s of state.spawners) {
-        if (!s.dead && dist(pr, s) < radius + s.r) {
-          s.hp -= pr.damage;
-          if (s.hp <= 0) s.dead = true;
-        }
-      }
-      for (const o of state.dungeon.objects) {
-        if (!o.dead && o.breakable) {
-          const cx = o.x + o.w/2, cy = o.y + o.h/2;
-          if (Math.hypot(pr.x - cx, pr.y - cy) < radius + Math.max(o.w,o.h)*0.5) {
-            o.hp -= pr.damage;
-            if (o.hp <= 0) o.dead = true;
-          }
-        }
-      }
-      playSfx('explode');
+      // 魔法弾は敵接触だけでなく、壁に当たった時も既存の爆発処理へ流す。
+      // 以前は存在しない createExplosion() を呼んでいて、壁ヒット時に停止していた。
+      explodeBomb(pr);
     }
 
     function handleProjectiles(){
@@ -1873,12 +1851,7 @@
       e.hpBarVisible = true;
 
       const isPlayerBomb = !!(source && source.kind === 'bomb' && source.from === 'player');
-      const willDie = wasAlive && e.hp <= 0;
 
-      // 音の振り分け:
-      // - 魔法ヒットは常にドーン.mp3
-      // - ただし魔法キル時も追加の通常ヒット音は鳴らさない
-      // - 剣など他の攻撃は通常ヒット音
       if (isPlayerBomb) {
         playSfx(source.killSfx || 'bombkill');
       } else {
@@ -1890,15 +1863,7 @@
         e.deathAnim = 0.5;
         state.player.gold += e.gold;
         state.player.xp += e.gold;
-        if (e.shape === 'turret-convex' && !e.dead) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(0, -e.r*0.78);
-        ctx.lineTo(0, -e.r*1.08);
-        ctx.stroke();
-      }
-      if (e.boss) {
+        if (e.boss) {
           state.player.key = true;
           showOverlay('鍵を入手');
         }
