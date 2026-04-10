@@ -1,4 +1,4 @@
-<!-- ver. 0.5.3 -->
+<!-- ver. 0.5.4 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -195,7 +195,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.3</div>
+  <div id="versionTag">ver. 0.5.4</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -920,18 +920,14 @@
         const c = randi(1, 2 + Math.floor(state.floor/3));
         for(let i=0;i<c;i++) addEnemy(room);
 
-        // 一部の射撃敵を固定砲台として追加する
+        // 一部の射撃敵を、青系の固定砲台種族として追加する
         if (state.floor >= 8 && Math.random() < (0.22 + Math.min(0.28, state.floor * 0.01))) {
           const turretCount = state.floor >= 15 ? 3 : (state.floor >= 10 ? 2 : 1);
           const offsets = turretCount >= 3 ? [[-28,0],[28,0],[0,-28]] : turretCount === 2 ? [[-22,0],[22,0]] : [[0,0]];
           for (const [ox, oy] of offsets) {
             const tx = room.cx * TILE + ox, ty = room.cy * TILE + oy;
             if (isFarFromStartSpawn(tx, ty, state.dungeon.start)) {
-              const t = makeEnemy('ranged', tx, ty, state.floor);
-              t.turret = true;
-              t.targeting = 'direct';
-              t.shotEvery = Math.max(0.30, (t.shotEvery || 1.6) * (state.floor >= 15 ? 0.65 : 0.85));
-              enemies.push(t);
+              enemies.push(makeFloorTurretEnemy(tx, ty, state.floor));
             }
           }
         }
@@ -985,6 +981,39 @@
       addFloorTransition();
       playSfx('floor');
       showOverlay('Floor ' + state.floor);
+    }
+
+    function makeFloorTurretEnemy(x, y, floor){
+      // 固定砲台専用種族。青系で、階層が進むほど濃く、強くなる。
+      const tier = Math.min(5, Math.floor((floor - 1) / 5));
+      const colors = ['#bfe8ff', '#8fd1ff', '#5daeff', '#3b82f6', '#2456c9', '#173a8f'];
+      const shotEveryBase = [1.8, 1.5, 1.2, 0.95, 0.75, 0.58][tier];
+      const projSpeed = [180, 220, 260, 310, 360, 420][tier];
+      const damage = [1, 2, 3, 4, 6, 8][tier];
+      const hp = [10, 14, 18, 24, 30, 40][tier];
+      return {
+        type: 'floorTurret',
+        x, y, vx:0, vy:0, angle:0, lastContact:0, lastShot:0,
+        damageFlash:0, dead:false, deathAnim:0, hpBarVisible:false,
+        patrolSeed: 0, anchorX:x, anchorY:y, dormant:false,
+        name:'固定砲台', englishName:'Turret',
+        shape:'turret-convex',
+        color:colors[tier],
+        accent:'#dbeafe',
+        r:18 + tier,
+        hpMax: hp + Math.floor(floor * 0.6),
+        hp: hp + Math.floor(floor * 0.6),
+        attack: damage,
+        defense: tier,
+        mass: 999,
+        accel: 0,
+        maxSpeed: 0,
+        turret: true,
+        ranged: true,
+        targeting:'direct',
+        shotEvery: Math.max(0.22, shotEveryBase - floor * 0.005),
+        projectileSpeed: projSpeed,
+      };
     }
 
     function makeEnemy(type,x,y,floor,forceBoss=false){
@@ -1884,6 +1913,7 @@
           // H4/H8 が大きすぎた原因は、ここで半径を 8 * mult に固定していたため。
           // 指示どおり H4/H8 は半分のサイズにする。
           let rr = 8 * heal.mult;
+          if (heal.mult === 2) rr *= 0.5;
           if (heal.mult === 4) rr *= 0.5;
           if (heal.mult === 8) rr *= 0.5;
 
@@ -2269,6 +2299,28 @@
           const px = Math.cos(a)*rr, py = Math.sin(a)*rr;
           if(!i) ctx.moveTo(px,py); else ctx.lineTo(px,py);
         }
+        ctx.closePath();
+      } else if (shape==='turret-convex') {
+        // 凸型の砲台
+        ctx.moveTo(-r*0.95, r*0.75);
+        ctx.lineTo(-r*0.95, -r*0.45);
+        ctx.lineTo(-r*0.30, -r*0.45);
+        ctx.lineTo(-r*0.18, -r*0.95);
+        ctx.lineTo(r*0.18, -r*0.95);
+        ctx.lineTo(r*0.30, -r*0.45);
+        ctx.lineTo(r*0.95, -r*0.45);
+        ctx.lineTo(r*0.95, r*0.75);
+        ctx.closePath();
+        ctx.fill();
+      } else if (shape==='turret-convex') {
+        ctx.moveTo(-r*0.95, r*0.75);
+        ctx.lineTo(-r*0.95, -r*0.45);
+        ctx.lineTo(-r*0.30, -r*0.45);
+        ctx.lineTo(-r*0.18, -r*0.95);
+        ctx.lineTo(r*0.18, -r*0.95);
+        ctx.lineTo(r*0.30, -r*0.45);
+        ctx.lineTo(r*0.95, -r*0.45);
+        ctx.lineTo(r*0.95, r*0.75);
         ctx.closePath();
       } else if (shape==='beholder') {
         ctx.arc(0,0,r,0,Math.PI*2);
