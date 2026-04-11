@@ -1,4 +1,4 @@
-<!-- ver. 0.5.27 -->
+<!-- ver. 0.5.28 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.27</div>
+  <div id="versionTag">ver. 0.5.28</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -714,7 +714,7 @@
         key: false,
         sword: {tier:'wood', damage:2, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
-        bow: {tier:'copper', damage:2, arrows:100, max:100, speed:340, cooldown:0.92, last:-9, points:100, effectivePoints:0, label:'カッパー'},
+        bow: {tier:'copper', damage:2, arrows:10, max:UNLIMITED_AMMO_CAP, speed:340, cooldown:0.92, last:-9, points:0, effectivePoints:0, label:'カッパー'},
       };
     }
 
@@ -760,6 +760,7 @@
     const ENEMY_WINDOW_SIZE = 8;
     const ENEMY_REGULAR_WEIGHTS = [1.0, 1.65, 2.3, 3.0, 3.0, 2.3, 1.65];
     const PLAYER_SPEED_REFERENCE = 250;
+    const UNLIMITED_AMMO_CAP = Infinity;
 
     function clampEnemySpeed(v){
       return Math.min(v, PLAYER_SPEED_REFERENCE * 3);
@@ -851,21 +852,34 @@
       return /Spider|Snake|Mosquito|Basilisk|Cockatrice|Medusa|Maggot/.test(name);
     }
 
+    function enemyTacticsFor(name, ai, ranged){
+      return {
+        pack: /Rat|Wolf|Bat|Bat Swarm|Giant Ant|Goblin|Kobold|Gnoll|Orc|Hobgoblin|Scavenger|Hellhound|Chaos Spawn/.test(name),
+        flanker: /Spider|Dark Elf|Bandit|Harpy|Centaur|Shadow Beast|Void Walker/.test(name),
+        fleeLow: ranged || /Cultist|Imp|Goblin Shaman|Dark Mage|Lich|Necromancer|Beholder|Djinni|Efreeti/.test(name),
+        skirmish: ranged || /Harpy|Wyvern|Manticore|Vampire|Dark Elf|Centaur/.test(name),
+        bursty: /Rat|Bat|Mosquito|Wolf|Harpy|Wyvern|Void Walker|Shadow Beast|Vampire|Hellhound|Demon/.test(name),
+        fearless: /Golem|Living Armor|Dreadnought|World Eater|Hydra|Dragon|Ancient Dragon|Great Wyrm/.test(name),
+      };
+    }
+
     function generateEnemyProfile(name, index){
       const rank = index + 1;
       const tier = rank / ENEMY_ORDER.length;
       const [color, accent] = enemyPalette(index);
       const ai = enemyAiFor(name, rank);
       const ranged = enemyIsRanged(name, ai);
+      const tactics = enemyTacticsFor(name, ai, ranged);
       const bossish = /King|Queen|Lord|Ancient|Arch|Avatar|World Eater|Doom Bringer|Great Wyrm|Elder Brain|Dreadnought/.test(name);
       const baseR = Math.round(11 + tier * 16 + (bossish ? 4 : 0));
       const hp = Math.round(12 + Math.pow(rank, 1.33) * 1.8 + (bossish ? rank * 2.2 : 0));
       const attack = Math.round(7 + Math.pow(rank, 1.17) * 1.15 + (bossish ? rank * 0.55 : 0));
       const defense = Math.round(3 + rank * 0.62 + (bossish ? 8 : 0));
       const mass = +(0.8 + rank * 0.06 + (bossish ? 1.0 : 0)).toFixed(2);
-      const accelBase = 120 + (1 - tier) * 250 + ((index % 3) * 18);
+      const accelBase = 120 + (1 - tier) * 250 + ((index % 3) * 18) + (tactics.bursty ? 36 : 0);
       let maxSpeedBase = 70 + (1 - tier) * 240 + ((index % 4) * 12);
-      if (/Rat|Bat|Mosquito|Imp|Wolf|Harpy|Wyvern|Void Walker/.test(name)) maxSpeedBase += 55;
+      if (/Rat|Bat|Mosquito|Imp|Wolf|Harpy|Wyvern|Void Walker|Bat Swarm|Dark Elf|Vampire|Shadow Beast|Hellhound/.test(name)) maxSpeedBase += 75;
+      if (/Centaur|Manticore|Demon|Abyssal Demon|Chimera|Chaos Spawn/.test(name)) maxSpeedBase += 42;
       if (/Golem|Zombie|Mummy|Dreadnought|World Eater/.test(name)) maxSpeedBase -= 65;
       if (/Dragon|Ancient Dragon|Great Wyrm/.test(name)) maxSpeedBase += 30;
       const projectileSpeed = clampEnemySpeed(170 + rank * 3.2 + (ranged ? 30 : 0));
@@ -878,6 +892,7 @@
         r: Math.max(10, baseR),
         ai,
         ranged,
+        tactics,
         shotEvery: Math.max(0.42, 1.9 - tier * 1.1 - (ranged ? 0.12 : 0)),
         projectileSpeed,
         hp,
@@ -1485,6 +1500,18 @@
           if (d < 170) e.ai = 'bruiser';
         }
 
+        const allies = state.enemies.filter(a => a !== e && !a.dead && dist(a, e) < 145);
+        const allyCount = allies.length;
+        const allyCenter = allyCount
+          ? {
+              x: allies.reduce((sum, a) => sum + a.x, 0) / allyCount,
+              y: allies.reduce((sum, a) => sum + a.y, 0) / allyCount,
+            }
+          : {x:e.x, y:e.y};
+        const hpRatio = e.hpMax > 0 ? (e.hp / e.hpMax) : 1;
+        const lowHpRetreat = !e.boss && e.tactics?.fleeLow && !e.tactics?.fearless && hpRatio < 0.38;
+        const packEngage = e.tactics?.pack && allyCount >= 2 && d < 280;
+
         let target = {x:p.x, y:p.y};
         let dir;
         if (e.ai === 'wander') {
@@ -1536,9 +1563,36 @@
           target = {x:p.x, y:p.y};
         }
 
+        if (packEngage) {
+          const flankAngle = angleTo(p.x, p.y, e.x, e.y) + ((e.patrolSeed % 1) > 0.5 ? 1 : -1) * (0.7 + allyCount * 0.08);
+          const flankRadius = 38 + Math.min(72, allyCount * 14);
+          target = {
+            x: p.x + Math.cos(flankAngle) * flankRadius + (allyCenter.x - e.x) * 0.18,
+            y: p.y + Math.sin(flankAngle) * flankRadius + (allyCenter.y - e.y) * 0.18
+          };
+        }
+
+        if (e.tactics?.flanker && d < 260) {
+          const flankAngle = angleTo(p.x, p.y, e.x, e.y) + Math.sin(state.t * 0.8 + e.patrolSeed) * 1.1;
+          target = {x:p.x + Math.cos(flankAngle) * 64, y:p.y + Math.sin(flankAngle) * 64};
+        }
+
+        if (e.tactics?.skirmish && !lowHpRetreat) {
+          const desired = e.ranged ? 185 : 120;
+          if (d < desired * 0.72) target = {x:e.x - (p.x - e.x), y:e.y - (p.y - e.y)};
+          else if (d > desired * 1.38) target = {x:p.x + p.vx*0.35, y:p.y + p.vy*0.35};
+        }
+
+        if (lowHpRetreat) {
+          target = {
+            x: e.x - (p.x - e.x) * 1.25 + (allyCenter.x - e.x) * 0.35,
+            y: e.y - (p.y - e.y) * 1.25 + (allyCenter.y - e.y) * 0.35
+          };
+        }
+
         dir = norm(target.x-e.x, target.y-e.y);
 
-        if (e.ranged && !e.boss) {
+        if (e.ranged && !e.boss && !lowHpRetreat) {
           if (d < 160) dir = norm(e.x-p.x, e.y-p.y);
           if (e.ai === 'allSeeing' || e.ai === 'archmage') {
             dir = d < 200 ? norm(e.x-p.x, e.y-p.y) : dir;
@@ -1550,10 +1604,11 @@
 
         const damp = e.ai === 'slowChase' ? 0.88 : e.ai === 'wallRunner' ? 0.95 : 0.93;
         e.vx *= damp; e.vy *= damp;
+        const speedLimit = clampEnemySpeed(e.maxSpeed * ((e.tactics?.bursty && d < 250) ? 1.2 : 1));
         const sp = len(e.vx,e.vy);
-        if (sp > e.maxSpeed) {
+        if (sp > speedLimit) {
           const n = norm(e.vx,e.vy);
-          e.vx = n.x*e.maxSpeed; e.vy = n.y*e.maxSpeed;
+          e.vx = n.x*speedLimit; e.vy = n.y*speedLimit;
         }
         if (sp>3) e.angle = Math.atan2(e.vy,e.vx);
         if (e.ai === 'wallRunner' && sp > 8) e.angle += Math.sin(state.t * 12 + e.patrolSeed) * 0.1;
@@ -2111,7 +2166,7 @@
       }
       // 魔法の直撃ダメージ基礎値。実際の爆発ダメージはこの3倍。
       const map = {copper:{arrows:8}, silver:{arrows:14}, gold:{arrows:24}};
-      return refreshMagicWeapon({tier:t, damage:2, speed:340, cooldown:0.92, ...map[t], max:map[t].arrows, last:-9, powerLevel:0, points:0, effectivePoints:0, label:'カッパー'}, state ? state.floor : 1);
+      return refreshMagicWeapon({tier:t, damage:2, speed:340, cooldown:0.92, ...map[t], max:UNLIMITED_AMMO_CAP, last:-9, powerLevel:0, points:0, effectivePoints:0, label:'カッパー'}, state ? state.floor : 1);
     }
 
     function handlePickups(){
@@ -2143,7 +2198,7 @@
             const gained = item.points || randi(1, 4);
             if (p.bow) {
               p.bow.arrows += pickupBow.arrows;
-              p.bow.max += pickupBow.max;
+              p.bow.max = UNLIMITED_AMMO_CAP;
               p.bow.points = (p.bow.points || 0) + gained;
               refreshMagicWeapon(p.bow, state.floor);
             } else {
@@ -2714,7 +2769,7 @@
         p.bow ? `魔法:${p.bow.label || 'カッパー'}(${p.bow.points || 0}+${floorMagicBonus(state.floor)})` : '魔法なし'
       ].join(' / ');
       ui.swordText.textContent = p.sword ? '∞' : '-';
-      ui.bowText.textContent = p.bow ? `${p.bow.arrows}/${p.bow.max}` : '-';
+      ui.bowText.textContent = p.bow ? `${p.bow.arrows}/${Number.isFinite(p.bow.max) ? p.bow.max : '∞'}` : '-';
       ui.buffs.innerHTML = `
         <span class="badge">形状: ${p.shape}</span>
         <span class="badge">攻 ${p.attack}</span>
