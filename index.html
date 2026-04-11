@@ -1,4 +1,4 @@
-<!-- ver. 0.5.38 -->
+<!-- ver. 0.5.45 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.38</div>
+  <div id="versionTag">ver. 0.5.45</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -734,6 +734,8 @@
         poisonTickAt: 0,
         antidoteMushrooms: 0,
         lastDamageAt: -999,
+        invulUntil: -999,
+        projectileInvulUntil: -999,
         key: false,
         sword: {tier:'wood', damage:10, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
@@ -1487,16 +1489,16 @@
         }
       }
 
-      function turretGroupCountForFloor(floor, encounterTheme) {
-        let count = 1;
-        if (floor >= 7) count = 1 + (Math.random() < 0.45 ? 1 : 0);
-        if (floor >= 10) count = 2 + (Math.random() < 0.35 ? 1 : 0);
-        if (floor >= 14) count = 2 + (Math.random() < 0.65 ? 1 : 0);
-        if (floor >= 18) count = 3 + (Math.random() < 0.45 ? 1 : 0);
-        if (floor >= 24) count = 3 + (Math.random() < 0.75 ? 1 : 0);
-        if (encounterTheme === 'sentries') count += 1;
-        if (encounterTheme === 'fortress') count += Math.random() < 0.5 ? 1 : 0;
-        return Math.max(1, Math.min(5, count));
+      function totalTurretsForFloor(floor, encounterTheme, roomCount) {
+        if (floor < 5) return 0;
+        const t = clamp((floor - 5) / 15, 0, 1);
+        const base = 1 + t * 9;
+        const variance = 0.35 + t * 0.9;
+        let total = Math.round(base + rand(-variance, variance));
+        if (encounterTheme === 'sentries') total += 1;
+        if (encounterTheme === 'fortress') total += Math.random() < 0.5 ? 1 : 0;
+        total = Math.max(1, Math.min(10, total));
+        return Math.min(total, Math.max(1, roomCount * 2));
       }
 
       function turretPatternPoints(room, count, encounterTheme) {
@@ -1525,8 +1527,7 @@
         return patterns[0];
       }
 
-      function spawnTurretGroupInRoom(room, floor, encounterTheme) {
-        const count = turretGroupCountForFloor(floor, encounterTheme);
+      function spawnTurretGroupInRoom(room, floor, encounterTheme, count) {
         const points = turretPatternPoints(room, count, encounterTheme);
         const centerX = room.cx * TILE;
         const centerY = room.cy * TILE;
@@ -1560,6 +1561,44 @@
       const encounterTheme = encounterThemeForFloor(state.floor, state.dungeon.layout);
       const roomPool = spawnRooms.slice();
       const waveScale = enemyWaveMultiplier(state.floor);
+      const turretBudget = totalTurretsForFloor(state.floor, encounterTheme, roomPool.length);
+      const turretRooms = roomPool.slice().sort((a, b) => (b.w * b.h) - (a.w * a.h));
+      const turretAllocations = new Map();
+      if (turretBudget > 0 && turretRooms.length) {
+        let remaining = turretBudget;
+        for (let i = 0; i < turretRooms.length && remaining > 0; i++) {
+          const room = turretRooms[i];
+          const roomArea = room.w * room.h;
+          let cap = 1;
+          if (state.floor >= 9 && roomArea >= 45) cap = 2;
+          if (state.floor >= 14 && roomArea >= 60) cap = 3;
+          if (state.floor >= 18 && roomArea >= 80) cap = 4;
+          cap = Math.min(cap, remaining);
+          if (cap <= 0) continue;
+          const waveBias = clamp((state.floor - 5) / 15, 0, 1);
+          let give = 1;
+          while (give < cap && Math.random() < (0.22 + waveBias * 0.38)) give++;
+          if (encounterTheme === 'sentries' && give < cap && Math.random() < 0.45) give++;
+          turretAllocations.set(room, give);
+          remaining -= give;
+        }
+        let cursor = 0;
+        while (remaining > 0 && turretRooms.length) {
+          const room = turretRooms[cursor % turretRooms.length];
+          const current = turretAllocations.get(room) || 0;
+          const roomArea = room.w * room.h;
+          let cap = 1;
+          if (state.floor >= 9 && roomArea >= 45) cap = 2;
+          if (state.floor >= 14 && roomArea >= 60) cap = 3;
+          if (state.floor >= 18 && roomArea >= 80) cap = 4;
+          if (current < cap) {
+            turretAllocations.set(room, current + 1);
+            remaining--;
+          }
+          cursor++;
+          if (cursor > turretRooms.length * 4) break;
+        }
+      }
 
       for (let roomIndex = 0; roomIndex < roomPool.length; roomIndex++) {
         const room = roomPool[roomIndex];
@@ -1574,9 +1613,9 @@
 
         for (let i = 0; i < localCount; i++) addEnemy(room);
 
-        if (state.floor >= 5 && (encounterTheme === 'sentries' || Math.random() < (0.16 + Math.min(0.22, state.floor * 0.008) * waveScale))) {
-          // 砲台は5面以降に出現。深い階層やテーマに応じて、単体だけでなく複数の編隊でも配置する。
-          spawnTurretGroupInRoom(room, state.floor, encounterTheme);
+        const turretCount = turretAllocations.get(room) || 0;
+        if (turretCount > 0) {
+          spawnTurretGroupInRoom(room, state.floor, encounterTheme, turretCount);
         }
 
         if (encounterTheme === 'nest' || Math.random() < (0.14 + state.floor * 0.012) * waveScale) {
@@ -1685,13 +1724,19 @@
       }
     }
 
+    function turretProjectileDamageForFloor(floor){
+      const t = clamp((floor - 5) / 15, 0, 1);
+      return Math.round(15 + (50 - 15) * t);
+    }
+
     function makeFloorTurretEnemy(x, y, floor){
       // 固定砲台専用種族。青系で、階層が進むほど濃く、強くなる。
       const tier = Math.min(5, Math.floor((floor - 1) / 5));
       const colors = ['#bfe8ff', '#8fd1ff', '#5daeff', '#3b82f6', '#2456c9', '#173a8f'];
       const shotEveryBase = [1.8, 1.5, 1.2, 0.95, 0.75, 0.58][tier];
       const projSpeed = [180, 220, 260, 310, 360, 420][tier];
-      const damage = [6, 12, 18, 24, 36, 48][tier];
+      const projectileDamage = turretProjectileDamageForFloor(floor);
+      const damage = Math.max(4, Math.round(projectileDamage / 6));
       const hp = [10, 14, 18, 24, 30, 40][tier];
       const enemy = {
         type: 'floorTurret',
@@ -1715,6 +1760,7 @@
         targeting:'direct',
         shotEvery: Math.max(0.22, shotEveryBase - floor * 0.005),
         projectileSpeed: clampEnemySpeed(projSpeed),
+        projectileDamage,
       };
       enemy.gold = goldValue(enemy);
       return enemy;
@@ -2023,7 +2069,7 @@
               from:'enemy',
               x:spawnX, y:spawnY,
               vx:dir.x*(e.projectileSpeed || 220), vy:dir.y*(e.projectileSpeed || 220),
-              r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack * 6.00)), life:4,
+              r:e.boss?8:7, damage:(e.projectileDamage || Math.max(1, Math.round(e.attack * 6.00))), life:4,
               color:e.accent || '#ff9b6a', poison:!!e.poison
             });
           }
@@ -2473,9 +2519,10 @@
             const pAtk = p.attack + (front?1:0);
             const pDef = p.defense + (front?1:0);
             const dToEnemy = Math.max(1, Math.floor(pAtk - e.defense));
-            const dToPlayer = Math.max(1, Math.floor(e.attack - pDef));
+            let dToPlayer = Math.max(1, Math.floor(e.attack - pDef));
+            if (e.turret) dToPlayer = Math.max(1, Math.round(dToPlayer * 0.5));
             damageEnemy(e, dToEnemy);
-            damagePlayer(dToPlayer, e.poison ? rand(5,20) : 0);
+            damagePlayer(dToPlayer, e.poison ? rand(5,20) : 0, {source:e.turret ? 'turret_contact' : 'contact'});
           }
           const n = norm(e.x-p.x, e.y-p.y);
           p.vx -= n.x*8; p.vy -= n.y*8;
@@ -2531,7 +2578,7 @@
           if (!s.lastContact || state.t - s.lastContact >= CONTACT_INTERVAL) {
             s.lastContact = state.t;
             s.hp -= Math.max(1, p.attack - s.defense);
-            damagePlayer(1,0);
+            damagePlayer(1,0,{source:'spawner_contact'});
             if (s.hp <= 0) s.dead = true;
           }
         }
@@ -2580,7 +2627,7 @@
         if (pr.life <= 0) continue;
         if (pr.from==='enemy') {
           if (dist(pr,p) < pr.r + p.r) {
-            damagePlayer(pr.damage, pr.poison ? rand(5,20) : 0);
+            damagePlayer(pr.damage, pr.poison ? rand(5,20) : 0, {source:'projectile'});
             addPastelExplosion(pr.x, pr.y, 1.0);
             pr.life = -1;
           }
@@ -2667,15 +2714,37 @@
       }
     }
 
-    function damagePlayer(dmg, poisonSec){
+    function damagePlayer(dmg, poisonSec, opts = {}){
       const p = state.player;
+      const now = state.t;
+      const source = opts.source || 'generic';
+      if (source === 'projectile' && now < (p.projectileInvulUntil || -999)) return false;
+      if (source !== 'poison' && now < (p.invulUntil || -999)) return false;
       p.hp -= dmg;
-      p.lastDamageAt = state.t;
+      p.lastDamageAt = now;
+      if (dmg > 0) {
+        addFloatingText(
+          p.x + rand(-10, 10),
+          p.y - p.r - 10,
+          `-${Math.round(dmg)}`,
+          '#ff4b4b',
+          1.15
+        );
+      }
+      if (source === 'projectile') {
+        p.projectileInvulUntil = now + 0.22;
+        p.invulUntil = Math.max(p.invulUntil || -999, now + 0.14);
+      } else if (source === 'turret_contact') {
+        p.invulUntil = now + 0.18;
+      } else if (source !== 'poison') {
+        p.invulUntil = now + 0.14;
+      }
       playSfx('damage');
       if (poisonSec > 0) {
-        p.poisonUntil = Math.max(p.poisonUntil, state.t + poisonSec);
-        p.poisonTickAt = Math.min(p.poisonTickAt || Infinity, state.t + 1);
+        p.poisonUntil = Math.max(p.poisonUntil, now + poisonSec);
+        p.poisonTickAt = Math.min(p.poisonTickAt || Infinity, now + 1);
       }
+      return true;
     }
 
     function maybeDropWeapon(x,y){
