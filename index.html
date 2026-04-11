@@ -1,4 +1,4 @@
-<!-- ver. 0.5.43 -->
+<!-- ver. 0.5.38 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.43</div>
+  <div id="versionTag">ver. 0.5.38</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -734,8 +734,6 @@
         poisonTickAt: 0,
         antidoteMushrooms: 0,
         lastDamageAt: -999,
-        invulUntil: -999,
-        projectileInvulUntil: -999,
         key: false,
         sword: {tier:'wood', damage:10, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
@@ -1687,19 +1685,13 @@
       }
     }
 
-    function turretProjectileDamageForFloor(floor){
-      const t = clamp((floor - 5) / 15, 0, 1);
-      return Math.round(15 + (50 - 15) * t);
-    }
-
     function makeFloorTurretEnemy(x, y, floor){
       // 固定砲台専用種族。青系で、階層が進むほど濃く、強くなる。
       const tier = Math.min(5, Math.floor((floor - 1) / 5));
       const colors = ['#bfe8ff', '#8fd1ff', '#5daeff', '#3b82f6', '#2456c9', '#173a8f'];
       const shotEveryBase = [1.8, 1.5, 1.2, 0.95, 0.75, 0.58][tier];
       const projSpeed = [180, 220, 260, 310, 360, 420][tier];
-      const projectileDamage = turretProjectileDamageForFloor(floor);
-      const damage = Math.max(4, Math.round(projectileDamage / 6));
+      const damage = [6, 12, 18, 24, 36, 48][tier];
       const hp = [10, 14, 18, 24, 30, 40][tier];
       const enemy = {
         type: 'floorTurret',
@@ -1723,7 +1715,6 @@
         targeting:'direct',
         shotEvery: Math.max(0.22, shotEveryBase - floor * 0.005),
         projectileSpeed: clampEnemySpeed(projSpeed),
-        projectileDamage,
       };
       enemy.gold = goldValue(enemy);
       return enemy;
@@ -2032,7 +2023,7 @@
               from:'enemy',
               x:spawnX, y:spawnY,
               vx:dir.x*(e.projectileSpeed || 220), vy:dir.y*(e.projectileSpeed || 220),
-              r:e.boss?8:7, damage:(e.projectileDamage || Math.max(1, Math.round(e.attack * 6.00))), life:4,
+              r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack * 6.00)), life:4,
               color:e.accent || '#ff9b6a', poison:!!e.poison
             });
           }
@@ -2482,10 +2473,9 @@
             const pAtk = p.attack + (front?1:0);
             const pDef = p.defense + (front?1:0);
             const dToEnemy = Math.max(1, Math.floor(pAtk - e.defense));
-            let dToPlayer = Math.max(1, Math.floor(e.attack - pDef));
-            if (e.turret) dToPlayer = Math.max(1, Math.round(dToPlayer * 0.5));
+            const dToPlayer = Math.max(1, Math.floor(e.attack - pDef));
             damageEnemy(e, dToEnemy);
-            damagePlayer(dToPlayer, e.poison ? rand(5,20) : 0, {source:e.turret ? 'turret_contact' : 'contact'});
+            damagePlayer(dToPlayer, e.poison ? rand(5,20) : 0);
           }
           const n = norm(e.x-p.x, e.y-p.y);
           p.vx -= n.x*8; p.vy -= n.y*8;
@@ -2541,7 +2531,7 @@
           if (!s.lastContact || state.t - s.lastContact >= CONTACT_INTERVAL) {
             s.lastContact = state.t;
             s.hp -= Math.max(1, p.attack - s.defense);
-            damagePlayer(1,0,{source:'spawner_contact'});
+            damagePlayer(1,0);
             if (s.hp <= 0) s.dead = true;
           }
         }
@@ -2590,7 +2580,7 @@
         if (pr.life <= 0) continue;
         if (pr.from==='enemy') {
           if (dist(pr,p) < pr.r + p.r) {
-            damagePlayer(pr.damage, pr.poison ? rand(5,20) : 0, {source:'projectile'});
+            damagePlayer(pr.damage, pr.poison ? rand(5,20) : 0);
             addPastelExplosion(pr.x, pr.y, 1.0);
             pr.life = -1;
           }
@@ -2677,28 +2667,15 @@
       }
     }
 
-    function damagePlayer(dmg, poisonSec, opts = {}){
+    function damagePlayer(dmg, poisonSec){
       const p = state.player;
-      const now = state.t;
-      const source = opts.source || 'generic';
-      if (source === 'projectile' && now < (p.projectileInvulUntil || -999)) return false;
-      if (source !== 'poison' && now < (p.invulUntil || -999)) return false;
       p.hp -= dmg;
-      p.lastDamageAt = now;
-      if (source === 'projectile') {
-        p.projectileInvulUntil = now + 0.22;
-        p.invulUntil = Math.max(p.invulUntil || -999, now + 0.14);
-      } else if (source === 'turret_contact') {
-        p.invulUntil = now + 0.18;
-      } else if (source !== 'poison') {
-        p.invulUntil = now + 0.14;
-      }
+      p.lastDamageAt = state.t;
       playSfx('damage');
       if (poisonSec > 0) {
-        p.poisonUntil = Math.max(p.poisonUntil, now + poisonSec);
-        p.poisonTickAt = Math.min(p.poisonTickAt || Infinity, now + 1);
+        p.poisonUntil = Math.max(p.poisonUntil, state.t + poisonSec);
+        p.poisonTickAt = Math.min(p.poisonTickAt || Infinity, state.t + 1);
       }
-      return true;
     }
 
     function maybeDropWeapon(x,y){
