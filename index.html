@@ -1,4 +1,4 @@
-<!-- ver. 0.5.24 -->
+<!-- ver. 0.5.25 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.24</div>
+  <div id="versionTag">ver. 0.5.25</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -673,8 +673,8 @@
         attack: 4,
         defense: 2,
         mass: 2,
-        accel: 520,
-        maxSpeed: 210,
+        accel: 600,
+        maxSpeed: 240,
         level: 1,
         xp: 0,
         xpNext: 12 * LEVEL_XP_MULT,
@@ -715,118 +715,31 @@
       ));
     }
 
-    // 添付の敵一覧から、この試作に相性が良い6種類を抽出して使用する。
-    // 後半ほど強くなり、50階で最後の通常敵ドラゴンが出るように段階解放する。
+
     const ENEMY_ORDER = [
-      'slime','goblin','kobold','giantRat','skeleton',
-      'zombie','ghost','lich','mimic','rustMonster',
-      'roper','dragon','orc','golem','beholder'
+      'Slime','Rat','Bat','Giant Ant','Maggot','Spider','Kobold','Goblin','Skeleton','Zombie',
+      'Jelly','Beetle','Worm','Mosquito','Imp','Gnoll','Scavenger','Shade','Crab','Cultist',
+      'Skeleton Warrior','Goblin Shaman','Orc','Wolf','Snake','Harpy','Ghost','Bandit','Slime King','Spider Queen',
+      'Skeleton Archer','Zombie Soldier','Imp Sorcerer','Gnoll Hunter','Living Armor','Gargoyle','Bat Swarm','Fire Beetle','Sewer Rat','Mimic',
+      'Ogre','Troll','Minotaur','Harpy Matriarch','Wraith','Skeleton Knight','Zombie Lord','Orc Warrior','Hobgoblin','Basilisk',
+      'Cockatrice','Mummy','Specter','Dark Elf','Medusa','Centaur','Cyclops','Slime Titan','Dark Mage','Gargoyle Sentinel',
+      'Chimera','Wyvern','Beholder','Death Knight','Vampire','Lichenthrope','Ogre Mage','Manticore','Efreeti','Djinni',
+      'Lich','Shadow Beast','Hellhound','Stone Golem','Iron Golem','Hydra','Demon','Devil','Bone Dragon','Vampire Lord',
+      'Dragon','Ancient Dragon','Archdemon','Archdevil','Fallen Angel','Lich King','Necromancer','Beholder Tyrant','Chimera Lord','Hydra King','Dark Lord',
+      'Void Walker','Chaos Spawn','Abyssal Demon','Dreadnought','Elder Brain','Great Wyrm','Avatar of Chaos','Doom Bringer','World Eater'
     ];
 
-    const ENEMY_PROFILES = {
-      slime: {
-        name:'スライム', englishName:'Slime',
-        shape:'dome', color:'#d8ef7a', accent:'#79c7ff',
-        r: 12,
-        ai:'wander', hp:15, attack:10, defense:12, mass:1.5, accel:145, maxSpeed:72
-      },
-      goblin: {
-        name:'ゴブリン', englishName:'Goblin',
-        shape:'triangle', color:'#7c9a42', accent:'#4e3419',
-        r: 14,
-        ai:'ambush', hp:25, attack:15, defense:8, mass:1.0, accel:340, maxSpeed:150
-      },
-      kobold: {
-        name:'コボルド', englishName:'Kobold',
-        shape:'rectangle', color:'#8f7a60', accent:'#c9b9a0',
-        r: 13,
-        ai:'trapper', ranged:true, shotEvery:1.8, projectileSpeed:220,
-        hp:20, attack:12, defense:10, mass:1.1, accel:260, maxSpeed:138
-      },
-      giantRat: {
-        name:'ジャイアントラット', englishName:'Giant Rat',
-        shape:'oval', color:'#332b26', accent:'#6d6d72',
-        r: 11,
-        ai:'wallRunner', hp:12, attack:14, defense:6, mass:0.8, accel:500, maxSpeed:190, poison:true
-      },
-      skeleton: {
-        name:'スケルトン', englishName:'Skeleton',
-        shape:'cage', color:'#e1e1d8', accent:'#919191',
-        r: 17,
-        ai:'patrol', hp:40, attack:20, defense:15, mass:2.2, accel:220, maxSpeed:96
-      },
-      zombie: {
-        name:'ゾンビ', englishName:'Zombie',
-        shape:'blob', color:'#6f7e49', accent:'#7f4f91',
-        r: 19,
-        ai:'slowChase', hp:80, attack:18, defense:25, mass:3.3, accel:90, maxSpeed:48
-      },
-      ghost: {
-        name:'ゴースト', englishName:'Ghost',
-        shape:'wisp', color:'#8aa7ff', accent:'#d7b2ff',
-        r: 15,
-        ai:'phase', phasesWalls:true, hp:30, attack:15, defense:50, mass:0.3, accel:180, maxSpeed:118
-      },
-      lich: {
-        name:'リッチ', englishName:'Lich',
-        shape:'pentagon', color:'#2a1730', accent:'#d6b253',
-        r: 18,
-        ai:'archmage', ranged:true, shotEvery:1.0, projectileSpeed:255,
-        hp:150, attack:85, defense:40, mass:1.6, accel:180, maxSpeed:102
-      },
-      mimic: {
-        name:'ミミック', englishName:'Mimic',
-        shape:'chest', color:'#7a5431', accent:'#b33a3a',
-        r: 18,
-        ai:'mimic', hp:120, attack:60, defense:45, mass:3.0, accel:300, maxSpeed:135
-      },
-      rustMonster: {
-        name:'ラスト・モンスター', englishName:'Rust Monster',
-        shape:'starburst', color:'#c88349', accent:'#6a5e51',
-        r: 16,
-        ai:'equipmentHunter', hp:45, attack:5, defense:20, mass:1.2, accel:320, maxSpeed:150
-      },
-      roper: {
-        name:'ローパー', englishName:'Roper',
-        shape:'cylinder', color:'#7b7568', accent:'#bdb4aa',
-        r: 20,
-        ai:'turret', turret:true, shotEvery:1.55, projectileSpeed:205,
-        hp:100, attack:30, defense:40, mass:999
-      },
-      dragon: {
-        name:'ドラゴン', englishName:'Dragon',
-        shape:'dragon', color:'#a33b2a', accent:'#1d1d1d',
-        r: 28,
-        ai:'wyvern', ranged:true, shotEvery:1.2, projectileSpeed:280,
-        hp:1000, attack:100, defense:80, mass:5.7, accel:260, maxSpeed:178
-      },
-      orc: {
-        name:'オーク', englishName:'Orc',
-        shape:'trapezoid', color:'#6f7c3e', accent:'#9f7c63',
-        r: 20,
-        ai:'bruiser', hp:150, attack:45, defense:30, mass:2.7, accel:210, maxSpeed:92
-      },
-      golem: {
-        name:'ゴーレム', englishName:'Golem',
-        shape:'cube', color:'#8f7d65', accent:'#c8b79a',
-        r: 26,
-        ai:'sentinel', hp:300, attack:70, defense:90, mass:8.5, accel:110, maxSpeed:58
-      },
-      beholder: {
-        name:'ベホルダー', englishName:'Beholder',
-        shape:'eye', color:'#5f3d58', accent:'#d85f4d',
-        r: 22,
-        ai:'allSeeing', ranged:true, shotEvery:0.85, projectileSpeed:250,
-        hp:250, attack:50, defense:40, mass:2.2, accel:150, maxSpeed:74
-      }
-    };
+    const ENEMY_WINDOW_SIZE = 8;
+    const ENEMY_REGULAR_WEIGHTS = [1.0, 1.65, 2.3, 3.0, 3.0, 2.3, 1.65];
+    const PLAYER_SPEED_REFERENCE = 240;
 
-    // 5フロアごとに出現レンジをひとつずつスライドさせる。
-    // 1-5F: 1〜5番目, 6-10F: 2〜6番目 ... 46-50F: 11〜15番目
+    function clampEnemySpeed(v){
+      return Math.min(v, PLAYER_SPEED_REFERENCE * 3);
+    }
+
     function enemyWindowForFloor(floor) {
-      const band = Math.min(10, Math.max(0, Math.floor((floor - 1) / 5)));
-      const start = Math.min(ENEMY_ORDER.length - 5, band);
-      return ENEMY_ORDER.slice(start, start + 5);
+      const start = Math.max(0, Math.min(ENEMY_ORDER.length - ENEMY_WINDOW_SIZE, Math.floor(floor - 1)));
+      return ENEMY_ORDER.slice(start, start + ENEMY_WINDOW_SIZE);
     }
 
     function availableEnemyTypesForFloor(floor) {
@@ -835,13 +748,123 @@
 
     function strongestEnemyTypeForFloor(floor) {
       const pool = availableEnemyTypesForFloor(floor);
+      return pool[pool.length - 1] || ENEMY_ORDER[0];
+    }
+
+    function weightedRegularEnemyTypeForFloor(floor) {
+      const pool = availableEnemyTypesForFloor(floor).slice(0, ENEMY_WINDOW_SIZE - 1);
+      if (!pool.length) return ENEMY_ORDER[0];
+      const weights = ENEMY_REGULAR_WEIGHTS.slice(0, pool.length);
+      const total = weights.reduce((a, b) => a + b, 0);
+      let roll = Math.random() * total;
+      for (let i = 0; i < pool.length; i++) {
+        roll -= weights[i];
+        if (roll <= 0) return pool[i];
+      }
       return pool[pool.length - 1];
     }
 
     function spawnerEnemyTypesForFloor(floor) {
-      const pool = availableEnemyTypesForFloor(floor).slice(0, 4);
-      return pool.length ? pool : ['slime'];
+      const pool = availableEnemyTypesForFloor(floor).slice(0, 5);
+      return pool.length ? pool : [ENEMY_ORDER[0]];
     }
+
+    function enemyPalette(index){
+      const palettes = [
+        ['#7ddc6f','#d9ffd0'], ['#9c7a62','#e7c9a8'], ['#88a0ff','#d7e1ff'], ['#c86f54','#ffd4a8'],
+        ['#7a9b4f','#d8ef7a'], ['#7a66c9','#d7c8ff'], ['#7d858f','#e4e7ec'], ['#4db6ac','#c5fff5'],
+        ['#d95ce3','#ffc8ff'], ['#b94c4c','#ffd0d0'], ['#536878','#d7e8ff'], ['#b28a47','#fff0b0']
+      ];
+      return palettes[index % palettes.length];
+    }
+
+    function titleizeEnemyName(name){ return name; }
+
+    function enemyShapeFor(name, rank){
+      if (/Dragon|Wyrm|Wyvern/.test(name)) return 'dragon';
+      if (/Beholder|Elder Brain/.test(name)) return 'eye';
+      if (/Slime|Jelly/.test(name)) return rank >= 55 ? 'blob' : 'dome';
+      if (/Spider|Manticore|Chaos Spawn|Abyssal Demon/.test(name)) return 'starburst';
+      if (/Bat/.test(name)) return 'fan';
+      if (/Rat|Wolf|Snake|Worm|Maggot|Mosquito|Hellhound/.test(name)) return 'oval';
+      if (/Skeleton/.test(name)) return 'cage';
+      if (/Ghost|Shade|Specter|Wraith|Void Walker/.test(name)) return 'wisp';
+      if (/Knight|Armor|Golem|Dreadnought/.test(name)) return 'cube';
+      if (/Mage|Shaman|Cultist|Necromancer|Lich/.test(name)) return 'pentagon';
+      if (/Gargoyle|Harpy|Imp|Djinni|Efreeti/.test(name)) return 'triangle';
+      if (/Mimic/.test(name)) return 'chest';
+      if (/Crab|Beetle|Ant/.test(name)) return 'hex';
+      if (/King|Queen|Lord|Avatar|World Eater/.test(name)) return 'star';
+      if (/Minotaur|Centaur|Cyclops|Ogre|Troll/.test(name)) return 'trapezoid';
+      return ['circle','diamond','rectangle','hex','oval'][rank % 5];
+    }
+
+    function enemyAiFor(name, rank){
+      if (/Archer|Hunter/.test(name)) return 'trapper';
+      if (/Mage|Shaman|Cultist|Necromancer/.test(name)) return 'archmage';
+      if (/Beholder|Elder Brain/.test(name)) return 'allSeeing';
+      if (/Dragon|Wyvern|Manticore|Harpy/.test(name)) return 'wyvern';
+      if (/Ghost|Shade|Specter|Wraith|Void Walker/.test(name)) return 'phase';
+      if (/Rat|Wolf|Bat|Mosquito|Snake|Scavenger/.test(name)) return 'wallRunner';
+      if (/Mimic/.test(name)) return 'mimic';
+      if (/Golem|Armor|Dreadnought/.test(name)) return 'sentinel';
+      if (/Ogre|Troll|Minotaur|Cyclops|Hydra/.test(name)) return 'bruiser';
+      if (/Slime|Zombie|Mummy|Jelly/.test(name)) return 'slowChase';
+      if (/Imp|Goblin|Bandit|Kobold/.test(name)) return 'ambush';
+      if (/Spider|Basilisk|Cockatrice|Medusa|Dark Elf/.test(name)) return 'equipmentHunter';
+      return rank % 2 === 0 ? 'patrol' : 'wander';
+    }
+
+    function enemyIsRanged(name, ai){
+      return ['trapper','archmage','allSeeing'].includes(ai) || /Archer|Shaman|Mage|Cultist|Beholder|Brain|Necromancer|Djinni|Efreeti/.test(name);
+    }
+
+    function enemyPoisons(name){
+      return /Spider|Snake|Mosquito|Basilisk|Cockatrice|Medusa|Maggot/.test(name);
+    }
+
+    function generateEnemyProfile(name, index){
+      const rank = index + 1;
+      const tier = rank / ENEMY_ORDER.length;
+      const [color, accent] = enemyPalette(index);
+      const ai = enemyAiFor(name, rank);
+      const ranged = enemyIsRanged(name, ai);
+      const bossish = /King|Queen|Lord|Ancient|Arch|Avatar|World Eater|Doom Bringer|Great Wyrm|Elder Brain|Dreadnought/.test(name);
+      const baseR = Math.round(11 + tier * 16 + (bossish ? 4 : 0));
+      const hp = Math.round(12 + Math.pow(rank, 1.33) * 1.8 + (bossish ? rank * 2.2 : 0));
+      const attack = Math.round(7 + Math.pow(rank, 1.17) * 1.15 + (bossish ? rank * 0.55 : 0));
+      const defense = Math.round(3 + rank * 0.62 + (bossish ? 8 : 0));
+      const mass = +(0.8 + rank * 0.06 + (bossish ? 1.0 : 0)).toFixed(2);
+      const accelBase = 120 + (1 - tier) * 250 + ((index % 3) * 18);
+      let maxSpeedBase = 70 + (1 - tier) * 240 + ((index % 4) * 12);
+      if (/Rat|Bat|Mosquito|Imp|Wolf|Harpy|Wyvern|Void Walker/.test(name)) maxSpeedBase += 55;
+      if (/Golem|Zombie|Mummy|Dreadnought|World Eater/.test(name)) maxSpeedBase -= 65;
+      if (/Dragon|Ancient Dragon|Great Wyrm/.test(name)) maxSpeedBase += 30;
+      const projectileSpeed = clampEnemySpeed(170 + rank * 3.2 + (ranged ? 30 : 0));
+      return {
+        name: titleizeEnemyName(name),
+        englishName: name,
+        shape: enemyShapeFor(name, rank),
+        color,
+        accent,
+        r: Math.max(10, baseR),
+        ai,
+        ranged,
+        shotEvery: Math.max(0.42, 1.9 - tier * 1.1 - (ranged ? 0.12 : 0)),
+        projectileSpeed,
+        hp,
+        attack,
+        defense,
+        mass,
+        accel: Math.round(accelBase),
+        maxSpeed: clampEnemySpeed(Math.round(maxSpeedBase)),
+        poison: enemyPoisons(name),
+        phasesWalls: /Ghost|Shade|Specter|Wraith|Void Walker/.test(name),
+        turret: false,
+      };
+    }
+
+    const ENEMY_PROFILES = Object.fromEntries(ENEMY_ORDER.map((name, index) => [name, generateEnemyProfile(name, index)]));
 
     function createDungeon(floor){
       const w = 46 + floor*3;
@@ -949,8 +972,7 @@
       const rooms = state.dungeon.rooms;
 
       function addEnemy(room, typeOverride) {
-        const types = availableEnemyTypesForFloor(state.floor);
-        const type = typeOverride || types[randi(0, types.length-1)];
+        const type = typeOverride || weightedRegularEnemyTypeForFloor(state.floor);
         for (let tries = 0; tries < 24; tries++) {
           const x = (room.cx + rand(-room.w/3, room.w/3))*TILE;
           const y = (room.cy + rand(-room.h/3, room.h/3))*TILE;
@@ -960,8 +982,8 @@
         }
       }
 
-      // まず各フロア帯で出る5種類を最低1体ずつ配置して、出現表どおりの顔ぶれを保証する。
-      const seededTypes = availableEnemyTypesForFloor(state.floor);
+      // 各フロアで出現する7種の通常敵を最低1体ずつ配置して、顔ぶれを保証する。
+      const seededTypes = availableEnemyTypesForFloor(state.floor).slice(0, ENEMY_WINDOW_SIZE - 1);
       const spawnRooms = rooms.slice(1, -1);
       seededTypes.forEach((type, idx) => {
         const room = spawnRooms[idx % Math.max(1, spawnRooms.length)];
@@ -1066,7 +1088,7 @@
         ranged: true,
         targeting:'direct',
         shotEvery: Math.max(0.22, shotEveryBase - floor * 0.005),
-        projectileSpeed: projSpeed,
+        projectileSpeed: clampEnemySpeed(projSpeed),
       };
       enemy.gold = goldValue(enemy);
       return enemy;
@@ -1099,7 +1121,7 @@
           defense: Math.max(0, Math.round(profile.defense * 1.8)),
           mass: (profile.mass || 1) * 2.6,
           accel: Math.max(0, (profile.accel || 0) * 0.9),
-          maxSpeed: (profile.maxSpeed || 0) * 1.08,
+          maxSpeed: clampEnemySpeed((profile.maxSpeed || 0) * 1.08),
           ai: profile.ai,
           ranged: !!profile.ranged,
           shotEvery: Math.max(0.45, (profile.shotEvery || 1.4) * 0.82),
@@ -1126,7 +1148,7 @@
           defense: Math.max(0, Math.round(profile.defense * (1 + Math.max(0, floor - 1) * 0.01))),
           mass: profile.mass,
           accel: profile.accel || 0,
-          maxSpeed: profile.maxSpeed || 0,
+          maxSpeed: clampEnemySpeed(profile.maxSpeed || 0),
           ai: profile.ai,
           ranged: !!profile.ranged,
           shotEvery: profile.shotEvery || 1.6,
@@ -1176,12 +1198,7 @@
     }
 
     function bossTypeForFloor(floor){
-      // ボスはその時点の登場モンスターグループの弱い方から、階ごとに1体ずつ進める。
-      // 例: 1F slime, 2F goblin, 3F kobold ...
-      const types = availableEnemyTypesForFloor(floor);
-      if (!types || !types.length) return 'slime';
-      const index = Math.max(0, Math.min(types.length - 1, floor - 1));
-      return types[index];
+      return strongestEnemyTypeForFloor(floor);
     }
 
     function init(){
@@ -1361,7 +1378,7 @@
               from:'enemy',
               x:spawnX, y:spawnY,
               vx:dir.x*(e.projectileSpeed || 220), vy:dir.y*(e.projectileSpeed || 220),
-              r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack * 0.12)), life:4,
+              r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack * 0.60)), life:4,
               color:e.accent || '#ff9b6a', poison:!!e.poison
             });
           }
@@ -2525,7 +2542,19 @@
       else if (it.kind==='mushroom') ctx.fillStyle = '#d95ce3';
       else ctx.fillStyle = tierColor(it.tier);
       ctx.beginPath();
-      ctx.arc(x,y,it.r,0,Math.PI*2);
+      if (it.kind==='bow') {
+        const spikes = 5;
+        for (let i = 0; i < spikes * 2; i++) {
+          const a = -Math.PI / 2 + (i / (spikes * 2)) * Math.PI * 2;
+          const rr = i % 2 === 0 ? it.r * 1.15 : it.r * 0.48;
+          const px = x + Math.cos(a) * rr;
+          const py = y + Math.sin(a) * rr;
+          if (!i) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+      } else {
+        ctx.arc(x,y,it.r,0,Math.PI*2);
+      }
       ctx.fill();
       ctx.fillStyle = '#111';
       ctx.font = `${Math.max(10, Math.floor(8 + (it.r || 8) * 0.25))}px sans-serif`;
