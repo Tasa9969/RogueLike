@@ -1,4 +1,4 @@
-<!-- ver. 0.5.42 -->
+<!-- ver. 0.5.43 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.42</div>
+  <div id="versionTag">ver. 0.5.43</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -734,6 +734,8 @@
         poisonTickAt: 0,
         antidoteMushrooms: 0,
         lastDamageAt: -999,
+        invulUntil: -999,
+        projectileInvulUntil: -999,
         key: false,
         sword: {tier:'wood', damage:10, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
@@ -1487,179 +1489,46 @@
         }
       }
 
-      function totalTurretCountForFloor(floor, encounterTheme) {
-        if (floor < 5) return 0;
-        const progress = clamp((floor - 5) / 15, 0, 1);
-        const base = lerp(1, 10, progress);
-        let themeBias = 0;
-        if (encounterTheme === 'sentries') themeBias += lerp(0.15, 0.9, progress);
-        if (encounterTheme === 'fortress') themeBias += lerp(0.2, 1.2, progress);
-        if (encounterTheme === 'hunters') themeBias -= lerp(0.05, 0.45, progress);
-        if (encounterTheme === 'swarm') themeBias += lerp(0.05, 0.55, progress);
-        if (encounterTheme === 'nest') themeBias -= lerp(0.05, 0.3, progress);
-        const jitterScale = lerp(0.18, 0.95, progress);
-        const triangular = (Math.random() + Math.random() + Math.random()) / 3;
-        const jitter = (triangular - 0.5) * 2 * jitterScale;
-        const minTotal = floor === 5 ? 1 : Math.max(1, Math.floor(base - 0.75));
-        const maxTotal = floor >= 20 ? 10 : Math.min(10, Math.max(minTotal, Math.ceil(base + 0.9 + progress * 0.8)));
-        let total = Math.round(base + themeBias + jitter);
-        total = clamp(total, minTotal, maxTotal);
-        if (floor === 5) total = 1;
-        if (floor >= 20) total = Math.max(total, 9 + (Math.random() < 0.5 ? 1 : 0));
-        return Math.max(1, Math.min(10, total));
-      }
-
-      function distributeTurretBudget(rooms, totalCount, encounterTheme) {
-        if (!rooms.length || totalCount <= 0) return [];
-        const plan = [];
-        const weights = rooms.map((room, idx) => {
-          const areaWeight = clamp(((room.w * room.h) - 16) / 32, 0.7, 1.65);
-          let themeWeight = 1;
-          if (encounterTheme === 'sentries') themeWeight += (idx % 2 === 0 ? 0.35 : 0.12);
-          if (encounterTheme === 'fortress') themeWeight += (idx < 2 ? 0.45 : 0.18);
-          if (encounterTheme === 'hunters') themeWeight -= 0.08;
-          if (encounterTheme === 'nest') themeWeight -= 0.12;
-          return Math.max(0.35, areaWeight * themeWeight);
-        });
-        const order = rooms.map((room, idx) => ({room, idx, weight: weights[idx], roll: Math.random()}))
-          .sort((a, b) => (b.weight + b.roll * 0.25) - (a.weight + a.roll * 0.25));
-
-        let remaining = totalCount;
-        const roomLimitBase = encounterTheme === 'fortress' ? 4 : (encounterTheme === 'sentries' ? 3 : 2);
-        const maxRoomsToUse = Math.min(order.length, Math.max(1, Math.ceil(totalCount / 2) + (totalCount >= 6 ? 1 : 0)));
-
-        for (let i = 0; i < order.length && remaining > 0 && plan.length < maxRoomsToUse; i++) {
-          const entry = order[i];
-          const remainingSlots = maxRoomsToUse - plan.length;
-          const share = remainingSlots <= 1 ? remaining : Math.max(1, Math.round((remaining * entry.weight) / order.slice(i).reduce((s, o) => s + o.weight, 0)));
-          const roomLimit = Math.min(remaining, roomLimitBase + (totalCount >= 8 && i === 0 ? 1 : 0));
-          const assigned = clamp(share, 1, roomLimit);
-          plan.push({ room: entry.room, count: assigned });
-          remaining -= assigned;
-        }
-
-        let cursor = 0;
-        while (remaining > 0 && plan.length) {
-          const entry = plan[cursor % plan.length];
-          const perRoomCap = encounterTheme === 'fortress' ? 5 : 4;
-          if (entry.count < perRoomCap) {
-            entry.count++;
-            remaining--;
-          }
-          cursor++;
-          if (cursor > 100) break;
-        }
-
-        return plan.filter(entry => entry.count > 0);
+      function turretGroupCountForFloor(floor, encounterTheme) {
+        let count = 1;
+        if (floor >= 7) count = 1 + (Math.random() < 0.45 ? 1 : 0);
+        if (floor >= 10) count = 2 + (Math.random() < 0.35 ? 1 : 0);
+        if (floor >= 14) count = 2 + (Math.random() < 0.65 ? 1 : 0);
+        if (floor >= 18) count = 3 + (Math.random() < 0.45 ? 1 : 0);
+        if (floor >= 24) count = 3 + (Math.random() < 0.75 ? 1 : 0);
+        if (encounterTheme === 'sentries') count += 1;
+        if (encounterTheme === 'fortress') count += Math.random() < 0.5 ? 1 : 0;
+        return Math.max(1, Math.min(5, count));
       }
 
       function turretPatternPoints(room, count, encounterTheme) {
-        const usableW = Math.max(TILE * 2.8, (room.w - 2.4) * TILE);
-        const usableH = Math.max(TILE * 2.8, (room.h - 2.4) * TILE);
-        const spanX = Math.min(usableW * 0.45, TILE * 4.6);
-        const spanY = Math.min(usableH * 0.45, TILE * 4.6);
-        const clampPoint = (x, y) => ({
-          x: clamp(x, -spanX, spanX),
-          y: clamp(y, -spanY, spanY),
-        });
-        const dedupe = (pts) => {
-          const out = [];
-          const seen = new Set();
-          for (const pt of pts) {
-            const qx = Math.round(pt.x / 4) * 4;
-            const qy = Math.round(pt.y / 4) * 4;
-            const key = `${qx},${qy}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            out.push({x: qx, y: qy});
-          }
-          return out;
-        };
-        const linePattern = (n, horizontal = true, stagger = false) => {
-          const pts = [];
-          const dx = n <= 1 ? 0 : (spanX * 2) / Math.max(1, n - 1);
-          const dy = n <= 1 ? 0 : (spanY * 2) / Math.max(1, n - 1);
-          for (let i = 0; i < n; i++) {
-            const offset = i - (n - 1) / 2;
-            if (horizontal) pts.push(clampPoint(offset * dx, stagger && i % 2 ? spanY * 0.35 : 0));
-            else pts.push(clampPoint(stagger && i % 2 ? spanX * 0.35 : 0, offset * dy));
-          }
-          return pts;
-        };
-        const gridPattern = (n, cols, stagger = false) => {
-          const pts = [];
-          const rows = Math.ceil(n / cols);
-          const stepX = cols <= 1 ? 0 : (spanX * 2) / Math.max(1, cols - 1);
-          const stepY = rows <= 1 ? 0 : (spanY * 2) / Math.max(1, rows - 1);
-          for (let i = 0; i < n; i++) {
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            const ox = (col - (cols - 1) / 2) * stepX + (stagger && row % 2 ? stepX * 0.35 : 0);
-            const oy = (row - (rows - 1) / 2) * stepY;
-            pts.push(clampPoint(ox, oy));
-          }
-          return pts;
-        };
-        const ringPattern = (n) => {
-          if (n === 1) return [clampPoint(0, 0)];
-          const pts = [];
-          const rx = Math.max(TILE * 0.9, spanX * 0.92);
-          const ry = Math.max(TILE * 0.9, spanY * 0.92);
-          for (let i = 0; i < n; i++) {
-            const a = (-Math.PI / 2) + (Math.PI * 2 * i / n);
-            pts.push(clampPoint(Math.cos(a) * rx, Math.sin(a) * ry));
-          }
-          return pts;
-        };
-        const wedgePattern = (n) => {
-          const pts = [clampPoint(0, -spanY * 0.78)];
-          let row = 1;
-          while (pts.length < n) {
-            const width = row + 1;
-            for (let i = 0; i < width && pts.length < n; i++) {
-              const ox = (i - (width - 1) / 2) * (spanX / Math.max(1, width / 1.35));
-              const oy = -spanY * 0.2 + row * (spanY / 2.6);
-              pts.push(clampPoint(ox, oy));
-            }
-            row++;
-          }
-          return pts;
-        };
-        const fortressPattern = (n) => {
-          const corners = [
-            clampPoint(-spanX, -spanY), clampPoint(spanX, -spanY),
-            clampPoint(-spanX, spanY), clampPoint(spanX, spanY),
-            clampPoint(0, -spanY), clampPoint(0, spanY),
-            clampPoint(-spanX, 0), clampPoint(spanX, 0),
-            clampPoint(0, 0), clampPoint(0, 0),
-          ];
-          return corners.slice(0, n);
-        };
+        const spanX = Math.max(TILE * 0.9, Math.min(room.w * TILE * 0.22, TILE * 2.4));
+        const spanY = Math.max(TILE * 0.9, Math.min(room.h * TILE * 0.22, TILE * 2.4));
+        const patterns = [];
+        patterns.push([{x:0, y:0}]);
+        patterns.push([{x:-spanX, y:0}, {x:spanX, y:0}]);
+        patterns.push([{x:0, y:-spanY}, {x:-spanX, y:spanY}, {x:spanX, y:spanY}]);
+        patterns.push([{x:-spanX, y:-spanY}, {x:spanX, y:-spanY}, {x:-spanX, y:spanY}, {x:spanX, y:spanY}]);
+        patterns.push([{x:-spanX*1.2, y:0}, {x:0, y:-spanY}, {x:0, y:spanY}, {x:spanX*1.2, y:0}]);
+        patterns.push([{x:-spanX*1.4, y:-spanY}, {x:-spanX*0.5, y:spanY*0.9}, {x:spanX*0.5, y:-spanY*0.9}, {x:spanX*1.4, y:spanY}]);
+        patterns.push([{x:0, y:0}, {x:-spanX*1.3, y:-spanY}, {x:spanX*1.3, y:-spanY}, {x:-spanX*1.3, y:spanY}, {x:spanX*1.3, y:spanY}]);
 
-        const candidates = [];
-        candidates.push(linePattern(count, true, false));
-        candidates.push(linePattern(count, false, false));
-        candidates.push(linePattern(count, true, true));
-        candidates.push(gridPattern(count, Math.min(count, 2 + Math.floor(Math.sqrt(count))), false));
-        candidates.push(gridPattern(count, Math.min(count, 3 + (count >= 8 ? 1 : 0)), true));
-        candidates.push(wedgePattern(count));
-        candidates.push(ringPattern(count));
-        candidates.push(fortressPattern(count));
+        const preferred = [];
+        if (encounterTheme === 'sentries') preferred.push(3, 4, 6);
+        if (encounterTheme === 'fortress') preferred.push(4, 6, 5);
+        if (encounterTheme === 'swarm') preferred.push(2, 5, 6);
+        if (encounterTheme === 'hunters') preferred.push(1, 2, 5);
+        preferred.push(1, 2, 3, 4, 5, 6, 0);
 
-        let preferred = [0, 3, 5, 4, 6, 7, 1, 2];
-        if (encounterTheme === 'sentries') preferred = [7, 6, 3, 4, 0, 1, 5, 2];
-        if (encounterTheme === 'fortress') preferred = [7, 3, 6, 4, 5, 0, 1, 2];
-        if (encounterTheme === 'swarm') preferred = [4, 3, 6, 5, 0, 2, 1, 7];
-        if (encounterTheme === 'hunters') preferred = [0, 2, 5, 1, 3, 4, 6, 7];
-
-        const pickIndex = preferred[Math.floor(Math.random() * Math.min(3, preferred.length))] || preferred[0];
-        const picked = dedupe(candidates[pickIndex] || candidates[0]);
-        if (picked.length >= count) return picked.slice(0, count);
-        return dedupe(gridPattern(count, Math.min(count, 3 + (count >= 7 ? 1 : 0)), true)).slice(0, count);
+        for (const idx of preferred) {
+          const pts = patterns[idx];
+          if (pts && pts.length >= count) return pts.slice(0, count);
+        }
+        return patterns[0];
       }
 
-      function spawnTurretGroupInRoom(room, count, floor, encounterTheme) {
-        if (count <= 0) return;
+      function spawnTurretGroupInRoom(room, floor, encounterTheme) {
+        const count = turretGroupCountForFloor(floor, encounterTheme);
         const points = turretPatternPoints(room, count, encounterTheme);
         const centerX = room.cx * TILE;
         const centerY = room.cy * TILE;
@@ -1693,8 +1562,6 @@
       const encounterTheme = encounterThemeForFloor(state.floor, state.dungeon.layout);
       const roomPool = spawnRooms.slice();
       const waveScale = enemyWaveMultiplier(state.floor);
-      const turretSpawnPlan = distributeTurretBudget(roomPool, totalTurretCountForFloor(state.floor, encounterTheme), encounterTheme);
-      const turretPlanByRoom = new Map(turretSpawnPlan.map(entry => [entry.room, entry.count]));
 
       for (let roomIndex = 0; roomIndex < roomPool.length; roomIndex++) {
         const room = roomPool[roomIndex];
@@ -1709,9 +1576,9 @@
 
         for (let i = 0; i < localCount; i++) addEnemy(room);
 
-        const turretCountForRoom = turretPlanByRoom.get(room) || 0;
-        if (turretCountForRoom > 0) {
-          spawnTurretGroupInRoom(room, turretCountForRoom, state.floor, encounterTheme);
+        if (state.floor >= 5 && (encounterTheme === 'sentries' || Math.random() < (0.16 + Math.min(0.22, state.floor * 0.008) * waveScale))) {
+          // 砲台は5面以降に出現。深い階層やテーマに応じて、単体だけでなく複数の編隊でも配置する。
+          spawnTurretGroupInRoom(room, state.floor, encounterTheme);
         }
 
         if (encounterTheme === 'nest' || Math.random() < (0.14 + state.floor * 0.012) * waveScale) {
@@ -1820,14 +1687,19 @@
       }
     }
 
+    function turretProjectileDamageForFloor(floor){
+      const t = clamp((floor - 5) / 15, 0, 1);
+      return Math.round(15 + (50 - 15) * t);
+    }
+
     function makeFloorTurretEnemy(x, y, floor){
       // 固定砲台専用種族。青系で、階層が進むほど濃く、強くなる。
       const tier = Math.min(5, Math.floor((floor - 1) / 5));
       const colors = ['#bfe8ff', '#8fd1ff', '#5daeff', '#3b82f6', '#2456c9', '#173a8f'];
       const shotEveryBase = [1.8, 1.5, 1.2, 0.95, 0.75, 0.58][tier];
       const projSpeed = [180, 220, 260, 310, 360, 420][tier];
-      const floorT = Math.max(0, Math.min(1, (floor - 5) / 15));
-      const damage = Math.round(15 + (50 - 15) * floorT);
+      const projectileDamage = turretProjectileDamageForFloor(floor);
+      const damage = Math.max(4, Math.round(projectileDamage / 6));
       const hp = [10, 14, 18, 24, 30, 40][tier];
       const enemy = {
         type: 'floorTurret',
@@ -1851,6 +1723,7 @@
         targeting:'direct',
         shotEvery: Math.max(0.22, shotEveryBase - floor * 0.005),
         projectileSpeed: clampEnemySpeed(projSpeed),
+        projectileDamage,
       };
       enemy.gold = goldValue(enemy);
       return enemy;
@@ -2159,7 +2032,7 @@
               from:'enemy',
               x:spawnX, y:spawnY,
               vx:dir.x*(e.projectileSpeed || 220), vy:dir.y*(e.projectileSpeed || 220),
-              r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack * 6.00)), life:4,
+              r:e.boss?8:7, damage:(e.projectileDamage || Math.max(1, Math.round(e.attack * 6.00))), life:4,
               color:e.accent || '#ff9b6a', poison:!!e.poison
             });
           }
@@ -2609,9 +2482,10 @@
             const pAtk = p.attack + (front?1:0);
             const pDef = p.defense + (front?1:0);
             const dToEnemy = Math.max(1, Math.floor(pAtk - e.defense));
-            const dToPlayer = Math.max(1, Math.floor(e.attack - pDef));
+            let dToPlayer = Math.max(1, Math.floor(e.attack - pDef));
+            if (e.turret) dToPlayer = Math.max(1, Math.round(dToPlayer * 0.5));
             damageEnemy(e, dToEnemy);
-            damagePlayer(dToPlayer, e.poison ? rand(5,20) : 0);
+            damagePlayer(dToPlayer, e.poison ? rand(5,20) : 0, {source:e.turret ? 'turret_contact' : 'contact'});
           }
           const n = norm(e.x-p.x, e.y-p.y);
           p.vx -= n.x*8; p.vy -= n.y*8;
@@ -2667,7 +2541,7 @@
           if (!s.lastContact || state.t - s.lastContact >= CONTACT_INTERVAL) {
             s.lastContact = state.t;
             s.hp -= Math.max(1, p.attack - s.defense);
-            damagePlayer(1,0);
+            damagePlayer(1,0,{source:'spawner_contact'});
             if (s.hp <= 0) s.dead = true;
           }
         }
@@ -2716,7 +2590,7 @@
         if (pr.life <= 0) continue;
         if (pr.from==='enemy') {
           if (dist(pr,p) < pr.r + p.r) {
-            damagePlayer(pr.damage, pr.poison ? rand(5,20) : 0);
+            damagePlayer(pr.damage, pr.poison ? rand(5,20) : 0, {source:'projectile'});
             addPastelExplosion(pr.x, pr.y, 1.0);
             pr.life = -1;
           }
@@ -2803,15 +2677,28 @@
       }
     }
 
-    function damagePlayer(dmg, poisonSec){
+    function damagePlayer(dmg, poisonSec, opts = {}){
       const p = state.player;
+      const now = state.t;
+      const source = opts.source || 'generic';
+      if (source === 'projectile' && now < (p.projectileInvulUntil || -999)) return false;
+      if (source !== 'poison' && now < (p.invulUntil || -999)) return false;
       p.hp -= dmg;
-      p.lastDamageAt = state.t;
+      p.lastDamageAt = now;
+      if (source === 'projectile') {
+        p.projectileInvulUntil = now + 0.22;
+        p.invulUntil = Math.max(p.invulUntil || -999, now + 0.14);
+      } else if (source === 'turret_contact') {
+        p.invulUntil = now + 0.18;
+      } else if (source !== 'poison') {
+        p.invulUntil = now + 0.14;
+      }
       playSfx('damage');
       if (poisonSec > 0) {
-        p.poisonUntil = Math.max(p.poisonUntil, state.t + poisonSec);
-        p.poisonTickAt = Math.min(p.poisonTickAt || Infinity, state.t + 1);
+        p.poisonUntil = Math.max(p.poisonUntil, now + poisonSec);
+        p.poisonTickAt = Math.min(p.poisonTickAt || Infinity, now + 1);
       }
+      return true;
     }
 
     function maybeDropWeapon(x,y){
@@ -2988,8 +2875,7 @@
         state.floorAdvancePending = false;
         state.floorAdvanceAt = 0;
         state.pendingFloorAdvance = true;
-        state.floorChangingUntil = state.t + 0.18;
-        showOverlay('FLOOR CLEAR', { subtext:`${state.floor}F -> ${state.floor + 1}F`, duration:260 });
+        state.floorChangingUntil = state.t + 0.12;
         addFloorTransition();
         playSfx('floor');
       }
