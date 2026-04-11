@@ -1,4 +1,4 @@
-<!-- ver. 0.5.29 -->
+<!-- ver. 0.5.30 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.29</div>
+  <div id="versionTag">ver. 0.5.30</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -712,7 +712,7 @@
         antidoteMushrooms: 0,
         lastDamageAt: -999,
         key: false,
-        sword: {tier:'wood', damage:2, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
+        sword: {tier:'wood', damage:10, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
         bow: {tier:'copper', damage:2, arrows:100, max:UNLIMITED_AMMO_CAP, speed:340, cooldown:0.92, last:-9, points:0, effectivePoints:0, label:'カッパー'},
       };
@@ -1234,8 +1234,8 @@
         patrolSeed: 0, anchorX:x, anchorY:y, dormant:true,
         name:'Treasure Chest', englishName:'Treasure Chest',
         shape:'chest', color:'#8b5a2b', accent:'#e7c84a', r:16,
-        hpMax: Math.round(18 + floor * 2.2), hp: Math.round(18 + floor * 2.2),
-        attack:0, defense:Math.max(0, Math.floor(floor * 0.15)), mass:999,
+        hpMax: 1, hp: 1,
+        attack:0, defense:0, mass:999,
         accel:0, maxSpeed:0, turret:false, ranged:false, shotEvery:999, projectileSpeed:0,
         poison:false, phasesWalls:false, boss:false, chest:true,
         gold: 0,
@@ -1243,7 +1243,7 @@
     }
 
     function spawnChestLoot(x, y){
-      const count = randi(0, 5);
+      const count = randi(1, 5);
       const lootKinds = ['heal','sword','bow','antidote','mushroom'];
       for (let i = 0; i < count; i++) {
         const kind = lootKinds[randi(0, lootKinds.length - 1)];
@@ -2267,7 +2267,7 @@
       const t = tier;
       if (kind==='sword') {
         const map = {
-          wood:{damage:2,durability:Infinity,cooldown:0.4,permanent:true},
+          wood:{damage:10,durability:Infinity,cooldown:0.4,permanent:true},
           copper:{damage:4,durability:Infinity,cooldown:0.45,permanent:true},
           iron:{damage:6,durability:Infinity,cooldown:0.43,permanent:true},
           silver:{damage:8,durability:Infinity,cooldown:0.4,permanent:true},
