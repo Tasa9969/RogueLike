@@ -1,4 +1,4 @@
-<!-- ver. 0.5.36 -->
+<!-- ver. 0.5.38 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.36</div>
+  <div id="versionTag">ver. 0.5.38</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -368,17 +368,13 @@
 
 
     // フロア切り替え時の全画面フェード。
-    // 前半で白く被せ、後半でゆっくり抜く。
+    // 非同期タイマーは使わず、短い一発の演出だけを出す。
     function addFloorTransition(){
       floorTransition.style.transition = 'none';
-      floorTransition.style.opacity = '0';
+      floorTransition.style.opacity = '0.9';
       void floorTransition.offsetWidth;
-      floorTransition.style.transition = 'opacity 360ms ease';
-      floorTransition.style.opacity = '1';
-      setTimeout(() => {
-        floorTransition.style.transition = 'opacity 960ms ease';
-        floorTransition.style.opacity = '0';
-      }, 170);
+      floorTransition.style.transition = 'opacity 180ms ease';
+      floorTransition.style.opacity = '0';
     }
 
     // 一時エフェクトの寿命管理。
@@ -1949,15 +1945,6 @@
     function update(dt){
       if (state.gameOver || state.paused) return;
       state.t += dt;
-      if (state.floorAdvancePending && state.floorAdvanceAt > 0 && state.t >= state.floorAdvanceAt) {
-        state.floorAdvanceAt = 0;
-        state.floor++;
-        refreshMagicWeapon(state.player && state.player.bow, state.floor);
-        state.player.hp = Math.min(state.player.hpMax, state.player.hp + Math.floor(state.player.hpMax * FLOOR_HEAL_RATIO));
-        spawnFloor(state);
-        state.floorChangingUntil = state.t + 0.25;
-        state.floorAdvancePending = false;
-      }
       // フロア遷移中は大半のロジックを止めて演出優先にする。
       if (state.floorChangingUntil > state.t) {
         updateEffects(dt);
@@ -2834,23 +2821,23 @@
     }
 
     // 階段に触れていて鍵を持っていれば次フロアへ。
-    // 演出中の二重発火を防ぐため floorChangingUntil でもガードする。
+    // 予約遷移は使わず、その場で次フロアを生成する。
     function checkStairs(){
       const p = state.player;
       const stairs = state.dungeon.stairs;
-      if (state.floorAdvancePending) return;
-      if (dist(p,stairs) < 34 && p.key && state.floorChangingUntil <= state.t) {
-        // 階段に触れた瞬間に鍵を消費して見た目と内部状態を揃える。
-        // これで遷移待ちの短い間に『反応しないアンロック階段』が残らない。
+      if (state.floorChangingUntil > state.t) return;
+      if (dist(p,stairs) < 34 && p.key) {
         p.key = false;
         state.stairsConsumed = true;
-        state.floorAdvancePending = true;
-        state.floorAdvanceToken += 1;
-        state.floorAdvanceAt = state.t + 0.32;
-        state.floorChangingUntil = state.t + 1.10;
+        state.floorAdvancePending = false;
+        state.floorAdvanceAt = 0;
+        state.floor++;
+        refreshMagicWeapon(state.player && state.player.bow, state.floor);
+        state.player.hp = Math.min(state.player.hpMax, state.player.hp + Math.floor(state.player.hpMax * FLOOR_HEAL_RATIO));
         addFloorTransition();
         playSfx('floor');
-        showOverlay('Descending...');
+        spawnFloor(state);
+        state.floorChangingUntil = state.t + 0.18;
       }
     }
 
@@ -2929,7 +2916,7 @@
       }
       drawWallEdges(cam, d, minTx, maxTx, minTy, maxTy);
 
-      drawStairs(d.stairs.x-cam.x, d.stairs.y-cam.y, state.player.key && !state.floorAdvancePending && !state.stairsConsumed);
+      drawStairs(d.stairs.x-cam.x, d.stairs.y-cam.y, state.player.key && !state.stairsConsumed && state.floorChangingUntil <= state.t);
 
       for (const o of d.objects) {
         ctx.save();
