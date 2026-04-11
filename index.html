@@ -1,4 +1,4 @@
-<!-- ver. 0.5.41 -->
+<!-- ver. 0.5.42 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.41</div>
+  <div id="versionTag">ver. 0.5.42</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1826,7 +1826,8 @@
       const colors = ['#bfe8ff', '#8fd1ff', '#5daeff', '#3b82f6', '#2456c9', '#173a8f'];
       const shotEveryBase = [1.8, 1.5, 1.2, 0.95, 0.75, 0.58][tier];
       const projSpeed = [180, 220, 260, 310, 360, 420][tier];
-      const damage = [6, 12, 18, 24, 36, 48][tier];
+      const floorT = Math.max(0, Math.min(1, (floor - 5) / 15));
+      const damage = Math.round(15 + (50 - 15) * floorT);
       const hp = [10, 14, 18, 24, 30, 40][tier];
       const enemy = {
         type: 'floorTurret',
