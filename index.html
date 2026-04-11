@@ -1,4 +1,4 @@
-<!-- ver. 0.5.33 -->
+<!-- ver. 0.5.35 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.33</div>
+  <div id="versionTag">ver. 0.5.35</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -339,6 +339,33 @@
         scale,
       });
     }
+
+    const ITEM_DISPLAY_NAMES = {
+      heal: 'Potion',
+      antidote: 'Antidote',
+      mushroom: 'Mushroom',
+      sword: 'Sword Core',
+      bow: 'Magic Star'
+    };
+
+    function itemEnglishName(item){
+      if (!item) return 'Item';
+      if (item.kind === 'sword') return `${titleizeEnemyName(item.tier || 'Wood')} Sword`;
+      if (item.kind === 'bow') return `${titleizeEnemyName(item.tier || 'Copper')} Magic`;
+      if (item.kind === 'heal') return item.mult && item.mult > 1 ? `Potion x${item.mult}` : 'Potion';
+      return ITEM_DISPLAY_NAMES[item.kind] || 'Item';
+    }
+
+    function itemPickupEffectText(item){
+      if (!item) return '';
+      if (item.kind === 'heal') return `HP +${item.healAmount || 5}`;
+      if (item.kind === 'antidote') return 'Poison Cleared';
+      if (item.kind === 'mushroom') return 'Mushroom +1';
+      if (item.kind === 'sword') return `Sword Power +${item.points || 0}`;
+      if (item.kind === 'bow') return `Magic Power +${item.points || 0} / Ammo +${item.ammoGain || 0}`;
+      return '';
+    }
+
 
     // フロア切り替え時の全画面フェード。
     // 前半で白く被せ、後半でゆっくり抜く。
@@ -906,6 +933,13 @@
         mass,
         accel: Math.round(accelBase),
         maxSpeed: clampEnemySpeed(Math.round(maxSpeedBase)),
+        intelligence: clamp(
+          (/Beholder|Brain|Necromancer|Lich|Dark Elf|Djinni|Efreeti|Cultist|Mage|Shaman/.test(name) ? 0.72 : 0.22)
+          + (ranged ? 0.14 : 0)
+          + (tactics.skirmish ? 0.08 : 0)
+          + (bossish ? 0.1 : 0),
+          0.08, 0.95
+        ),
         poison: enemyPoisons(name),
         phasesWalls: /Ghost|Shade|Specter|Wraith|Void Walker/.test(name),
         turret: false,
@@ -1185,11 +1219,113 @@
       return {tiles, rooms:[startRoom, ...rooms.slice(2,-1), stairsRoom], layout:'radial'};
     }
 
+
+    function isWalkableTileValue(v){
+      return v === 0 || v === 3;
+    }
+
+    function tileCoordsFromWorld(x, y){
+      return {tx: Math.floor(x / TILE), ty: Math.floor(y / TILE)};
+    }
+
+    function isTileInBounds(tiles, tx, ty){
+      return ty >= 0 && ty < tiles.length && tx >= 0 && tx < tiles[0].length;
+    }
+
+    function floodReachableTiles(tiles, startTx, startTy){
+      const reachable = new Set();
+      if (!isTileInBounds(tiles, startTx, startTy)) return reachable;
+      const startVal = tiles[startTy][startTx];
+      if (!isWalkableTileValue(startVal)) return reachable;
+      const q = [[startTx, startTy]];
+      reachable.add(`${startTx},${startTy}`);
+      for (let i = 0; i < q.length; i++) {
+        const [cx, cy] = q[i];
+        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        for (const [dx, dy] of dirs) {
+          const nx = cx + dx, ny = cy + dy;
+          const key = `${nx},${ny}`;
+          if (!isTileInBounds(tiles, nx, ny) || reachable.has(key)) continue;
+          if (!isWalkableTileValue(tiles[ny][nx])) continue;
+          reachable.add(key);
+          q.push([nx, ny]);
+        }
+      }
+      return reachable;
+    }
+
+    function forceRouteWithBridges(tiles, x1, y1, x2, y2){
+      let x = x1, y = y1;
+      const carve = (tx, ty) => {
+        if (!isTileInBounds(tiles, tx, ty)) return;
+        const v = tiles[ty][tx];
+        tiles[ty][tx] = v === 2 ? 3 : 0;
+      };
+      carve(x, y);
+      let guard = tiles.length * tiles[0].length * 4;
+      while ((x !== x2 || y !== y2) && guard-- > 0) {
+        const dx = x2 === x ? 0 : (x2 > x ? 1 : -1);
+        const dy = y2 === y ? 0 : (y2 > y ? 1 : -1);
+        if (dx !== 0 && (dy === 0 || Math.abs(x2 - x) >= Math.abs(y2 - y))) x += dx;
+        else if (dy !== 0) y += dy;
+        carve(x, y);
+        carve(x + 1, y);
+        carve(x - 1, y);
+        carve(x, y + 1);
+        carve(x, y - 1);
+      }
+    }
+
+    function addLakeBridges(tiles, rooms){
+      if (!rooms || rooms.length < 2) return;
+      const pairs = [[rooms[0], rooms[rooms.length - 1]]];
+      if (rooms.length > 4) pairs.push([rooms[1], rooms[Math.max(2, rooms.length - 2)]]);
+      for (const [a, b] of pairs) {
+        if (!a || !b) continue;
+        forceRouteWithBridges(tiles, a.cx, a.cy, b.cx, b.cy);
+      }
+    }
+
+    function ensureDungeonReachability(dungeon){
+      const tiles = dungeon.tiles;
+      const startTile = tileCoordsFromWorld(dungeon.start.x, dungeon.start.y);
+      const stairsTile = tileCoordsFromWorld(dungeon.stairs.x, dungeon.stairs.y);
+      if (!isWalkableTileValue(tiles[startTile.ty]?.[startTile.tx])) tiles[startTile.ty][startTile.tx] = 0;
+      if (!isWalkableTileValue(tiles[stairsTile.ty]?.[stairsTile.tx])) tiles[stairsTile.ty][stairsTile.tx] = 0;
+      let reachable = floodReachableTiles(tiles, startTile.tx, startTile.ty);
+      if (!reachable.has(`${stairsTile.tx},${stairsTile.ty}`)) {
+        forceRouteWithBridges(tiles, startTile.tx, startTile.ty, stairsTile.tx, stairsTile.ty);
+        reachable = floodReachableTiles(tiles, startTile.tx, startTile.ty);
+      }
+      dungeon.reachable = reachable;
+      return reachable;
+    }
+
+    function findReachableBossPosition(dungeon, start, fallbackX, fallbackY){
+      const reachable = dungeon.reachable || ensureDungeonReachability(dungeon);
+      const offsets = [[-2,0],[2,0],[0,-2],[0,2],[-3,1],[3,-1],[-2,2],[2,-2],[0,0]];
+      const stairsTile = tileCoordsFromWorld(dungeon.stairs.x, dungeon.stairs.y);
+      for (const [ox, oy] of offsets) {
+        const tx = stairsTile.tx + ox, ty = stairsTile.ty + oy;
+        if (!isTileInBounds(dungeon.tiles, tx, ty)) continue;
+        if (!reachable.has(`${tx},${ty}`)) continue;
+        const wx = (tx + 0.5) * TILE, wy = (ty + 0.5) * TILE;
+        if (isFarFromStartSpawn(wx, wy, start)) return {x: wx, y: wy};
+      }
+      for (const room of dungeon.rooms.slice().reverse()) {
+        const tx = room.cx, ty = room.cy;
+        if (!reachable.has(`${tx},${ty}`)) continue;
+        const wx = (tx + 0.5) * TILE, wy = (ty + 0.5) * TILE;
+        if (isFarFromStartSpawn(wx, wy, start)) return {x: wx, y: wy};
+      }
+      return {x: fallbackX, y: fallbackY};
+    }
+
     function createDungeon(floor){
       const w = 46 + floor*3;
       const h = 34 + floor*2;
-      const layoutIndex = (Math.max(1, floor) - 1) % 6;
-      const makers = [createRoomyDungeon, createLinearDungeon, createMazeDungeon, createCaveDungeon, createHybridDungeon, createRadialDungeon];
+      const layoutIndex = (Math.max(1, floor) - 1) % 7;
+      const makers = [createRoomyDungeon, createLinearDungeon, createMazeDungeon, createCaveDungeon, createHybridDungeon, createRadialDungeon, createUndergroundLakeDungeon];
       const built = makers[layoutIndex](w, h, floor);
       const tiles = built.tiles;
       const rooms = built.rooms;
@@ -1197,8 +1333,10 @@
       const stairsRoom = rooms[rooms.length-1];
       const start = {x:(startRoom.cx+0.5)*TILE, y:(startRoom.cy+0.5)*TILE};
       const stairs = {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE};
-      const objects = scatterDungeonProps(tiles, rooms, startRoom, stairsRoom);
-      return {w,h,tiles,objects,rooms,start,stairs,theme:themeForFloor(floor),layout:built.layout};
+      const dungeon = {w,h,tiles,objects:[],rooms,start,stairs,theme:themeForFloor(floor),layout:built.layout};
+      ensureDungeonReachability(dungeon);
+      dungeon.objects = scatterDungeonProps(tiles, rooms, startRoom, stairsRoom);
+      return dungeon;
     }
 
     function carvePath(tiles,x1,y1,x2,y2,diag=false){
@@ -1220,6 +1358,77 @@
           if (tiles[ty] && tiles[ty][tx] !== undefined && Math.random()<0.74) tiles[ty][tx]=0;
         }
       }
+    }
+
+
+    function enemyWaveMultiplier(floor){
+      const f = Math.max(1, floor || 1);
+      return clamp(0.82 + Math.sin(f * 0.62) * 0.34 + Math.sin(f * 0.21 + 1.1) * 0.18, 0.55, 1.62);
+    }
+
+    function enemyCountForRoom(floor, roomIndex, roomCount){
+      const base = 1.05 + floor * 0.055;
+      const wave = enemyWaveMultiplier(floor);
+      const roomBias = roomCount > 0 ? (roomIndex / Math.max(1, roomCount - 1)) * 0.55 : 0;
+      return Math.max(1, Math.round(base * wave + roomBias));
+    }
+
+    function encounterThemeForFloor(floor, layout){
+      const themes = ['swarm','sentries','hunters','fortress','nest'];
+      const offset = layout === 'lake' ? 2 : layout === 'maze' ? 1 : 0;
+      return themes[(Math.max(1, floor) + offset) % themes.length];
+    }
+
+    function eligibleRoomsForEncounters(rooms){
+      return rooms.slice(1, -1).filter(r => r && r.w >= 4 && r.h >= 4);
+    }
+
+    function spawnMinibossAt(room, floor, enemies){
+      if (!room) return;
+      const pool = availableEnemyTypesForFloor(floor).slice(2, ENEMY_WINDOW_SIZE - 1);
+      const type = pool[Math.max(0, Math.min(pool.length - 1, pool.length - 2))] || strongestEnemyTypeForFloor(floor);
+      const mini = makeEnemy(type, room.cx * TILE, room.cy * TILE, floor);
+      mini.miniboss = true;
+      mini.boss = false;
+      mini.r *= 1.5;
+      mini.hpMax = Math.round(mini.hpMax * 1.85);
+      mini.hp = mini.hpMax;
+      mini.attack = Math.round(mini.attack * 1.35);
+      mini.defense = Math.round(mini.defense * 1.2);
+      mini.maxSpeed *= 0.75;
+      mini.accel *= 0.82;
+      mini.color = '#c95f7c';
+      mini.accent = '#ffe4a8';
+      mini.englishName = `Elite ${mini.englishName}`;
+      mini.name = `Elite ${mini.name}`;
+      enemies.push(mini);
+    }
+
+    function paintLake(tiles, cx, cy, rx, ry){
+      for (let y = Math.max(2, cy - ry); y <= Math.min(tiles.length - 3, cy + ry); y++) {
+        for (let x = Math.max(2, cx - rx); x <= Math.min(tiles[0].length - 3, cx + rx); x++) {
+          const nx = (x - cx) / Math.max(1, rx);
+          const ny = (y - cy) / Math.max(1, ry);
+          if (nx * nx + ny * ny <= 1.0) tiles[y][x] = 2;
+        }
+      }
+    }
+
+    function createUndergroundLakeDungeon(w,h,floor){
+      const base = createCaveDungeon(w, h, floor);
+      const tiles = base.tiles;
+      const rooms = base.rooms;
+      for (let i = 0; i < 3; i++) {
+        const cx = randi(Math.floor(w * 0.24), Math.floor(w * 0.76));
+        const cy = randi(Math.floor(h * 0.24), Math.floor(h * 0.76));
+        paintLake(tiles, cx, cy, randi(5, 11), randi(3, 8));
+      }
+      const startRoom = rooms[0];
+      const stairsRoom = rooms[rooms.length - 1];
+      carveWidePath(tiles, startRoom.cx, startRoom.cy, stairsRoom.cx, stairsRoom.cy, 2, 0.05);
+      for (const room of rooms) carveBlobRoom(tiles, room, room.shape || 'ellipse');
+      addLakeBridges(tiles, rooms);
+      return {tiles, rooms, layout:'lake'};
     }
 
     // フロア生成後の実体配置。
@@ -1264,31 +1473,39 @@
 
       // 各フロアで出現する7種の通常敵を最低1体ずつ配置して、顔ぶれを保証する。
       const seededTypes = availableEnemyTypesForFloor(state.floor).slice(0, ENEMY_WINDOW_SIZE - 1);
-      const spawnRooms = rooms.slice(1, -1);
+      const spawnRooms = eligibleRoomsForEncounters(rooms);
       seededTypes.forEach((type, idx) => {
         const room = spawnRooms[idx % Math.max(1, spawnRooms.length)];
         if (room) addEnemy(room, type);
       });
 
-      const turretGroupChance = state.floor >= 10 ? Math.min(0.55, 0.10 + state.floor * 0.02) : 0.0;
+      const encounterTheme = encounterThemeForFloor(state.floor, state.dungeon.layout);
+      const roomPool = spawnRooms.slice();
+      const waveScale = enemyWaveMultiplier(state.floor);
 
-      for(const room of rooms.slice(1,-1)){
-        const c = randi(1, 2 + Math.floor(state.floor/3));
-        for(let i=0;i<c;i++) addEnemy(room);
+      for (let roomIndex = 0; roomIndex < roomPool.length; roomIndex++) {
+        const room = roomPool[roomIndex];
+        const c = enemyCountForRoom(state.floor, roomIndex, roomPool.length);
+        let localCount = c;
 
-        // 一部の射撃敵を、青系の固定砲台種族として追加する
-        if (state.floor >= 8 && Math.random() < (0.22 + Math.min(0.28, state.floor * 0.01))) {
-          const turretCount = state.floor >= 15 ? 3 : (state.floor >= 10 ? 2 : 1);
+        if (encounterTheme === 'swarm') localCount += roomIndex % 2 === 0 ? 2 : 1;
+        if (encounterTheme === 'hunters') localCount += roomIndex % 3 === 0 ? 1 : 0;
+        if (encounterTheme === 'fortress') localCount = Math.max(1, Math.round(c * 0.8));
+        if (encounterTheme === 'nest') localCount = Math.max(1, Math.round(c * 0.9));
+        if (encounterTheme === 'sentries') localCount = Math.max(1, Math.round(c * 0.7));
+
+        for (let i = 0; i < localCount; i++) addEnemy(room);
+
+        if (encounterTheme === 'sentries' || (state.floor >= 8 && Math.random() < (0.16 + Math.min(0.22, state.floor * 0.008) * waveScale))) {
+          const turretCount = encounterTheme === 'fortress' ? 3 : (state.floor >= 15 ? 3 : (state.floor >= 10 ? 2 : 1));
           const offsets = turretCount >= 3 ? [[-28,0],[28,0],[0,-28]] : turretCount === 2 ? [[-22,0],[22,0]] : [[0,0]];
           for (const [ox, oy] of offsets) {
             const tx = room.cx * TILE + ox, ty = room.cy * TILE + oy;
-            if (isFarFromStartSpawn(tx, ty, state.dungeon.start)) {
-              enemies.push(makeFloorTurretEnemy(tx, ty, state.floor));
-            }
+            if (isFarFromStartSpawn(tx, ty, state.dungeon.start)) enemies.push(makeFloorTurretEnemy(tx, ty, state.floor));
           }
         }
 
-        if (Math.random()<0.2 + state.floor*0.015) {
+        if (encounterTheme === 'nest' || Math.random() < (0.14 + state.floor * 0.012) * waveScale) {
           const sx = room.cx*TILE, sy = room.cy*TILE;
           if (!isFarFromStartSpawn(sx, sy, state.dungeon.start)) continue;
           spawners.push({
@@ -1298,13 +1515,21 @@
             hp:16,
             maxHp:16,
             defense:1,
-            // 巣が敵を吐き出す間隔。小さいほど高圧。
-            spawnEvery:Math.max(2.8, 5.2 - state.floor*0.12),
+            spawnEvery:Math.max(2.6, 5.4 - state.floor*0.12),
             last:0,
             dead:false,
-            // 1回のスポーンでまとめて出現する数。
             burst:2 + Math.floor(state.floor/4)
           });
+        }
+      }
+
+      if (state.floor >= 4 && roomPool.length) {
+        const miniCount = state.floor >= 18 ? 2 : 1;
+        for (let i = 0; i < miniCount; i++) {
+          const room = roomPool[Math.max(0, roomPool.length - 1 - i * 2)];
+          if (room && isFarFromStartSpawn(room.cx * TILE, room.cy * TILE, state.dungeon.start)) {
+            spawnMinibossAt(room, state.floor, enemies);
+          }
         }
       }
 
@@ -1326,17 +1551,9 @@
         bossX = state.dungeon.stairs.x + TILE*2;
         bossY = state.dungeon.stairs.y + TILE*2;
       }
-      if (!isFarFromStartSpawn(bossX, bossY, state.dungeon.start)) {
-        for (const room of rooms.slice().reverse()) {
-          const tx = room.cx * TILE;
-          const ty = room.cy * TILE;
-          if (isFarFromStartSpawn(tx, ty, state.dungeon.start)) {
-            bossX = tx;
-            bossY = ty;
-            break;
-          }
-        }
-      }
+      const bossSpot = findReachableBossPosition(state.dungeon, state.dungeon.start, bossX, bossY);
+      bossX = bossSpot.x;
+      bossY = bossSpot.y;
       enemies.push(makeEnemy(bossType, bossX, bossY, state.floor, true));
 
       state.enemies = enemies.filter(e => e.boss || isFarFromStartSpawn(e.x, e.y, state.dungeon.start));
@@ -1400,7 +1617,7 @@
       const colors = ['#bfe8ff', '#8fd1ff', '#5daeff', '#3b82f6', '#2456c9', '#173a8f'];
       const shotEveryBase = [1.8, 1.5, 1.2, 0.95, 0.75, 0.58][tier];
       const projSpeed = [180, 220, 260, 310, 360, 420][tier];
-      const damage = [3, 6, 9, 12, 18, 24][tier];
+      const damage = [6, 12, 18, 24, 36, 48][tier];
       const hp = [10, 14, 18, 24, 30, 40][tier];
       const enemy = {
         type: 'floorTurret',
@@ -1464,7 +1681,9 @@
           poison: !!profile.poison,
           turret: !!profile.turret,
           phasesWalls: !!profile.phasesWalls,
+          intelligence: Math.max(0.25, profile.intelligence ?? 0.7),
           boss: true,
+          miniboss: false,
           dormant: false,
         });
       } else {
@@ -1491,9 +1710,18 @@
           poison: !!profile.poison,
           turret: !!profile.turret,
           phasesWalls: !!profile.phasesWalls,
+          intelligence: profile.intelligence ?? 0.35,
+          miniboss: false,
           dormant: profile.ai === 'mimic',
         });
       }
+      if (!base.boss) {
+        const speedMul = clamp(0.62 + Math.random() * 0.98, 0.62, 1.6);
+        base.speedVariance = speedMul;
+        base.accel = Math.round((base.accel || 0) * lerp(0.82, 1.28, speedMul / 1.6));
+        base.maxSpeed = clampEnemySpeed((base.maxSpeed || 0) * speedMul);
+      }
+
       if (forceBoss) {
         base.boss = true;
         base.r = (base.r || 16) * 2;
@@ -1554,6 +1782,8 @@
         paused: false,
         floorSafeUntil: 0,
         floorChangingUntil: 0,
+        floorAdvancePending: false,
+        floorAdvanceToken: 0,
       };
       refreshMagicWeapon(state.player.bow, state.floor);
       spawnFloor(state);
@@ -1564,7 +1794,7 @@
       const minX = Math.floor((x-r)/TILE)-1, maxX = Math.floor((x+r)/TILE)+1;
       const minY = Math.floor((y-r)/TILE)-1, maxY = Math.floor((y+r)/TILE)+1;
       for(let ty=minY;ty<=maxY;ty++) for(let tx=minX;tx<=maxX;tx++){
-        if (!d.tiles[ty] || d.tiles[ty][tx]===undefined || d.tiles[ty][tx]===1) {
+        if (!d.tiles[ty] || d.tiles[ty][tx]===undefined || d.tiles[ty][tx]===1 || (d.tiles[ty][tx]===2)) {
           if (circleRect(x,y,r,tx*TILE,ty*TILE,TILE,TILE)) return false;
         }
       }
@@ -1827,6 +2057,31 @@
         }
 
         dir = norm(target.x-e.x, target.y-e.y);
+
+        if ((e.intelligence || 0) >= 0.45) {
+          let dodgeX = 0, dodgeY = 0, seen = 0;
+          for (const pr of state.projectiles) {
+            if (pr.from !== 'player' || pr.life <= 0) continue;
+            const dx = e.x - pr.x, dy = e.y - pr.y;
+            const distToProj = Math.hypot(dx, dy);
+            const dangerRadius = 36 + (e.intelligence || 0) * 90;
+            if (distToProj > dangerRadius) continue;
+            const pvLen = Math.hypot(pr.vx, pr.vy) || 1;
+            const pvx = pr.vx / pvLen, pvy = pr.vy / pvLen;
+            const toward = dx * pvx + dy * pvy;
+            if (toward < -12) continue;
+            const side = dx * (-pvy) + dy * pvx;
+            const dodgeSign = side >= 0 ? 1 : -1;
+            dodgeX += (-pvy) * dodgeSign * (1.4 - distToProj / dangerRadius);
+            dodgeY += pvx * dodgeSign * (1.4 - distToProj / dangerRadius);
+            seen++;
+          }
+          if (seen > 0) {
+            const avoid = norm(dodgeX, dodgeY);
+            const weight = clamp((e.intelligence || 0) * 0.95, 0.2, 0.9);
+            dir = norm(dir.x * (1 - weight) + avoid.x * weight, dir.y * (1 - weight) + avoid.y * weight);
+          }
+        }
 
         if (e.ranged && !e.boss && !lowHpRetreat) {
           if (d < 160) dir = norm(e.x-p.x, e.y-p.y);
@@ -2411,14 +2666,25 @@
         if (item.dead) continue;
         if (dist(item,p) < p.r + item.r + 6) {
           item.dead = true;
+          let effectText = '';
+          let effectColor = '#ffffff';
           if (item.kind==='heal') {
             const beforeHp = p.hp;
             p.hp = Math.min(p.hpMax, p.hp + (item.healAmount || 5));
             const gained = Math.max(0, Math.round(p.hp - beforeHp));
-            if (gained > 0) addFloatingText(p.x, p.y - 18, `+${gained} HP`, '#98ffb0', 1 + Math.log2(item.mult || 1) * 0.15);
+            effectText = gained > 0 ? `HP +${gained}` : 'HP Full';
+            effectColor = '#98ffb0';
           }
-          if (item.kind==='antidote') p.poisonUntil = 0;
-          if (item.kind==='mushroom') p.antidoteMushrooms++;
+          if (item.kind==='antidote') {
+            p.poisonUntil = 0;
+            effectText = 'Poison Cleared';
+            effectColor = '#8ef7de';
+          }
+          if (item.kind==='mushroom') {
+            p.antidoteMushrooms++;
+            effectText = 'Mushroom +1';
+            effectColor = '#f0a3ff';
+          }
           if (item.kind==='sword') {
             if (!p.sword) p.sword = makeWeapon('sword', 'wood');
             const gained = item.points || randi(1, 5);
@@ -2428,10 +2694,13 @@
             p.sword.label = swordLabelFromPoints(p.sword.points);
             p.sword.damage = swordDamageFromPoints(p.sword.points);
             p.sword.cooldown = Math.max(0.12, 0.40 - Math.min(0.16, (p.sword.points || 0) * 0.001));
+            effectText = `Sword Power +${gained}`;
+            effectColor = '#ffdba8';
           }
           if (item.kind==='bow') {
             const pickupBow = makeWeapon('bow', item.tier);
             const gained = item.points || randi(1, 4);
+            item.ammoGain = pickupBow.arrows;
             if (p.bow) {
               p.bow.arrows += pickupBow.arrows;
               p.bow.max = UNLIMITED_AMMO_CAP;
@@ -2442,7 +2711,11 @@
               p.bow.points = gained;
               refreshMagicWeapon(p.bow, state.floor);
             }
+            effectText = `Magic +${gained} / Ammo +${pickupBow.arrows}`;
+            effectColor = '#fff099';
           }
+          addFloatingText(p.x, p.y - 22, itemEnglishName(item), '#ffffff', 0.95);
+          if (effectText) addFloatingText(p.x, p.y - 38, effectText, effectColor, 1.0);
           playSfx('pickup');
         }
       }
@@ -2478,18 +2751,23 @@
     function checkStairs(){
       const p = state.player;
       const stairs = state.dungeon.stairs;
+      if (state.floorAdvancePending) return;
       if (dist(p,stairs) < 26 && p.key && state.floorChangingUntil <= state.t) {
+        state.floorAdvancePending = true;
+        state.floorAdvanceToken += 1;
+        const token = state.floorAdvanceToken;
         state.floorChangingUntil = state.t + 1.10;
         addFloorTransition();
         playSfx('floor');
         showOverlay('Descending...');
         setTimeout(() => {
-          if (!state || state.gameOver) return;
+          if (!state || state.gameOver || token !== state.floorAdvanceToken) return;
           state.floor++;
-      refreshMagicWeapon(state.player && state.player.bow, state.floor);
+          refreshMagicWeapon(state.player && state.player.bow, state.floor);
           p.hp = Math.min(p.hpMax, p.hp + Math.floor(p.hpMax * FLOOR_HEAL_RATIO));
           spawnFloor(state);
-          state.floorChangingUntil = 0;
+          state.floorChangingUntil = state.t + 0.25;
+          state.floorAdvancePending = false;
         }, 320);
       }
     }
@@ -2501,8 +2779,31 @@
       const px = tx*TILE - cam.x;
       const py = ty*TILE - cam.y;
       ctx.fillStyle = d.theme.path;
-      // 1pxぶん広げて塗り、拡大時の継ぎ目を見えにくくする。
       ctx.fillRect(Math.floor(px) - 0.5, Math.floor(py) - 0.5, TILE + 1, TILE + 1);
+    }
+
+    function drawWaterTile(tx, ty, cam, d){
+      const px = tx*TILE - cam.x;
+      const py = ty*TILE - cam.y;
+      const water = d.theme.water || '#466a9b';
+      ctx.fillStyle = water;
+      ctx.fillRect(Math.floor(px) - 0.5, Math.floor(py) - 0.5, TILE + 1, TILE + 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(Math.floor(px) + 2, Math.floor(py) + 2, TILE - 6, 3);
+    }
+
+    function drawBridgeTile(tx, ty, cam, d){
+      const px = tx*TILE - cam.x;
+      const py = ty*TILE - cam.y;
+      ctx.fillStyle = '#8c6a43';
+      ctx.fillRect(Math.floor(px) - 0.5, Math.floor(py) - 0.5, TILE + 1, TILE + 1);
+      ctx.fillStyle = '#a98557';
+      for (let i = 2; i < TILE - 1; i += 5) {
+        ctx.fillRect(Math.floor(px) + i, Math.floor(py), 2, TILE);
+      }
+      ctx.fillStyle = 'rgba(60,35,12,0.35)';
+      ctx.fillRect(Math.floor(px), Math.floor(py) + 2, TILE, 2);
+      ctx.fillRect(Math.floor(px), Math.floor(py) + TILE - 4, TILE, 2);
     }
 
     function drawWallEdges(cam, d, minTx, maxTx, minTy, maxTy){
@@ -2537,6 +2838,10 @@
         for(let x=minTx;x<=maxTx;x++){
           if (d.tiles[y] && d.tiles[y][x]===0) {
             drawPathTile(x, y, cam, d);
+          } else if (d.tiles[y] && d.tiles[y][x]===2) {
+            drawWaterTile(x, y, cam, d);
+          } else if (d.tiles[y] && d.tiles[y][x]===3) {
+            drawBridgeTile(x, y, cam, d);
           }
         }
       }
@@ -2646,6 +2951,11 @@
       ctx.rotate(e.angle || 0);
       ctx.fillStyle = e.damageFlash > 0 ? '#ffffff' : e.color;
       drawShape(e.shape, e.r, e.boss, e.poison, e.accent, e.dormant);
+      if (e.miniboss) {
+        ctx.strokeStyle = 'rgba(255,244,175,0.95)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
 
       // 敵の視認性向上用の黒い縁取り。名前の縁取りと同じ発想で、回転しても見え方が安定する。
       ctx.strokeStyle = 'rgba(0,0,0,0.55)';
@@ -2963,6 +3273,14 @@
           ctx.fill();
         }
       }
+      const label = itemEnglishName(it);
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 3;
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.strokeText(label, x, y - it.r - 7);
+      ctx.fillText(label, x, y - it.r - 7);
     }
 
     function drawSpawner(x,y,r,ratio){
