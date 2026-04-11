@@ -1,4 +1,4 @@
-<!-- ver. 0.5.40 -->
+<!-- ver. 0.5.41 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.40</div>
+  <div id="versionTag">ver. 0.5.41</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1487,25 +1487,70 @@
         }
       }
 
-      function turretGroupCountForFloor(floor, encounterTheme) {
+      function totalTurretCountForFloor(floor, encounterTheme) {
         if (floor < 5) return 0;
         const progress = clamp((floor - 5) / 15, 0, 1);
-        const mean = lerp(1, 10, progress);
-        const minCount = clamp(1 + Math.floor(progress * 5.2), 1, 10);
-        const maxCount = clamp(1 + Math.ceil(progress * 9), 1, 10);
+        const base = lerp(1, 10, progress);
         let themeBias = 0;
-        if (encounterTheme === 'sentries') themeBias += 0.5;
-        if (encounterTheme === 'fortress') themeBias += 0.85;
-        if (encounterTheme === 'hunters') themeBias -= 0.25;
-        if (encounterTheme === 'swarm') themeBias += 0.2;
-        const jitterScale = lerp(0.25, 2.0, progress);
+        if (encounterTheme === 'sentries') themeBias += lerp(0.15, 0.9, progress);
+        if (encounterTheme === 'fortress') themeBias += lerp(0.2, 1.2, progress);
+        if (encounterTheme === 'hunters') themeBias -= lerp(0.05, 0.45, progress);
+        if (encounterTheme === 'swarm') themeBias += lerp(0.05, 0.55, progress);
+        if (encounterTheme === 'nest') themeBias -= lerp(0.05, 0.3, progress);
+        const jitterScale = lerp(0.18, 0.95, progress);
         const triangular = (Math.random() + Math.random() + Math.random()) / 3;
         const jitter = (triangular - 0.5) * 2 * jitterScale;
-        let count = Math.round(mean + themeBias + jitter);
-        count = clamp(count, minCount, maxCount);
-        if (floor === 5) count = 1;
-        if (floor >= 20) count = Math.max(count, 9 + (Math.random() < 0.55 ? 1 : 0));
-        return Math.max(1, Math.min(10, count));
+        const minTotal = floor === 5 ? 1 : Math.max(1, Math.floor(base - 0.75));
+        const maxTotal = floor >= 20 ? 10 : Math.min(10, Math.max(minTotal, Math.ceil(base + 0.9 + progress * 0.8)));
+        let total = Math.round(base + themeBias + jitter);
+        total = clamp(total, minTotal, maxTotal);
+        if (floor === 5) total = 1;
+        if (floor >= 20) total = Math.max(total, 9 + (Math.random() < 0.5 ? 1 : 0));
+        return Math.max(1, Math.min(10, total));
+      }
+
+      function distributeTurretBudget(rooms, totalCount, encounterTheme) {
+        if (!rooms.length || totalCount <= 0) return [];
+        const plan = [];
+        const weights = rooms.map((room, idx) => {
+          const areaWeight = clamp(((room.w * room.h) - 16) / 32, 0.7, 1.65);
+          let themeWeight = 1;
+          if (encounterTheme === 'sentries') themeWeight += (idx % 2 === 0 ? 0.35 : 0.12);
+          if (encounterTheme === 'fortress') themeWeight += (idx < 2 ? 0.45 : 0.18);
+          if (encounterTheme === 'hunters') themeWeight -= 0.08;
+          if (encounterTheme === 'nest') themeWeight -= 0.12;
+          return Math.max(0.35, areaWeight * themeWeight);
+        });
+        const order = rooms.map((room, idx) => ({room, idx, weight: weights[idx], roll: Math.random()}))
+          .sort((a, b) => (b.weight + b.roll * 0.25) - (a.weight + a.roll * 0.25));
+
+        let remaining = totalCount;
+        const roomLimitBase = encounterTheme === 'fortress' ? 4 : (encounterTheme === 'sentries' ? 3 : 2);
+        const maxRoomsToUse = Math.min(order.length, Math.max(1, Math.ceil(totalCount / 2) + (totalCount >= 6 ? 1 : 0)));
+
+        for (let i = 0; i < order.length && remaining > 0 && plan.length < maxRoomsToUse; i++) {
+          const entry = order[i];
+          const remainingSlots = maxRoomsToUse - plan.length;
+          const share = remainingSlots <= 1 ? remaining : Math.max(1, Math.round((remaining * entry.weight) / order.slice(i).reduce((s, o) => s + o.weight, 0)));
+          const roomLimit = Math.min(remaining, roomLimitBase + (totalCount >= 8 && i === 0 ? 1 : 0));
+          const assigned = clamp(share, 1, roomLimit);
+          plan.push({ room: entry.room, count: assigned });
+          remaining -= assigned;
+        }
+
+        let cursor = 0;
+        while (remaining > 0 && plan.length) {
+          const entry = plan[cursor % plan.length];
+          const perRoomCap = encounterTheme === 'fortress' ? 5 : 4;
+          if (entry.count < perRoomCap) {
+            entry.count++;
+            remaining--;
+          }
+          cursor++;
+          if (cursor > 100) break;
+        }
+
+        return plan.filter(entry => entry.count > 0);
       }
 
       function turretPatternPoints(room, count, encounterTheme) {
@@ -1613,8 +1658,8 @@
         return dedupe(gridPattern(count, Math.min(count, 3 + (count >= 7 ? 1 : 0)), true)).slice(0, count);
       }
 
-      function spawnTurretGroupInRoom(room, floor, encounterTheme) {
-        const count = turretGroupCountForFloor(floor, encounterTheme);
+      function spawnTurretGroupInRoom(room, count, floor, encounterTheme) {
+        if (count <= 0) return;
         const points = turretPatternPoints(room, count, encounterTheme);
         const centerX = room.cx * TILE;
         const centerY = room.cy * TILE;
@@ -1648,6 +1693,8 @@
       const encounterTheme = encounterThemeForFloor(state.floor, state.dungeon.layout);
       const roomPool = spawnRooms.slice();
       const waveScale = enemyWaveMultiplier(state.floor);
+      const turretSpawnPlan = distributeTurretBudget(roomPool, totalTurretCountForFloor(state.floor, encounterTheme), encounterTheme);
+      const turretPlanByRoom = new Map(turretSpawnPlan.map(entry => [entry.room, entry.count]));
 
       for (let roomIndex = 0; roomIndex < roomPool.length; roomIndex++) {
         const room = roomPool[roomIndex];
@@ -1662,9 +1709,9 @@
 
         for (let i = 0; i < localCount; i++) addEnemy(room);
 
-        if (state.floor >= 5 && (encounterTheme === 'sentries' || Math.random() < (0.16 + Math.min(0.22, state.floor * 0.008) * waveScale))) {
-          // 砲台は5面以降に出現。深い階層やテーマに応じて、単体だけでなく複数の編隊でも配置する。
-          spawnTurretGroupInRoom(room, state.floor, encounterTheme);
+        const turretCountForRoom = turretPlanByRoom.get(room) || 0;
+        if (turretCountForRoom > 0) {
+          spawnTurretGroupInRoom(room, turretCountForRoom, state.floor, encounterTheme);
         }
 
         if (encounterTheme === 'nest' || Math.random() < (0.14 + state.floor * 0.012) * waveScale) {
