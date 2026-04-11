@@ -1,4 +1,4 @@
-<!-- ver. 0.5.35 -->
+<!-- ver. 0.5.36 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.35</div>
+  <div id="versionTag">ver. 0.5.36</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1301,6 +1301,23 @@
       return reachable;
     }
 
+
+    function clearStairsLandingZone(dungeon){
+      const stairsTile = tileCoordsFromWorld(dungeon.stairs.x, dungeon.stairs.y);
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+        const tx = stairsTile.tx + ox, ty = stairsTile.ty + oy;
+        if (!isTileInBounds(dungeon.tiles, tx, ty)) continue;
+        if (dungeon.tiles[ty][tx] === 1 || dungeon.tiles[ty][tx] === 2) dungeon.tiles[ty][tx] = 0;
+      }
+      const keepRadius = TILE * 1.6;
+      dungeon.objects = dungeon.objects.filter(o => {
+        const ox = o.x + o.w * 0.5;
+        const oy = o.y + o.h * 0.5;
+        return dist({x: ox, y: oy}, dungeon.stairs) > keepRadius;
+      });
+      dungeon.reachable = floodReachableTiles(dungeon.tiles, stairsTile.tx, stairsTile.ty);
+    }
+
     function findReachableBossPosition(dungeon, start, fallbackX, fallbackY){
       const reachable = dungeon.reachable || ensureDungeonReachability(dungeon);
       const offsets = [[-2,0],[2,0],[0,-2],[0,2],[-3,1],[3,-1],[-2,2],[2,-2],[0,0]];
@@ -1336,6 +1353,7 @@
       const dungeon = {w,h,tiles,objects:[],rooms,start,stairs,theme:themeForFloor(floor),layout:built.layout};
       ensureDungeonReachability(dungeon);
       dungeon.objects = scatterDungeonProps(tiles, rooms, startRoom, stairsRoom);
+      clearStairsLandingZone(dungeon);
       return dungeon;
     }
 
@@ -1454,6 +1472,7 @@
       p.vx = p.vy = 0;
       p.key = false;
       p.swordInputHeld = false;
+      state.stairsConsumed = false;
       const enemies = [];
       const projectiles = [];
       const pickups = [];
@@ -1842,6 +1861,7 @@
         floorChangingUntil: 0,
         floorAdvancePending: false,
         floorAdvanceToken: 0,
+        floorAdvanceAt: 0,
       };
       refreshMagicWeapon(state.player.bow, state.floor);
       spawnFloor(state);
@@ -1929,6 +1949,15 @@
     function update(dt){
       if (state.gameOver || state.paused) return;
       state.t += dt;
+      if (state.floorAdvancePending && state.floorAdvanceAt > 0 && state.t >= state.floorAdvanceAt) {
+        state.floorAdvanceAt = 0;
+        state.floor++;
+        refreshMagicWeapon(state.player && state.player.bow, state.floor);
+        state.player.hp = Math.min(state.player.hpMax, state.player.hp + Math.floor(state.player.hpMax * FLOOR_HEAL_RATIO));
+        spawnFloor(state);
+        state.floorChangingUntil = state.t + 0.25;
+        state.floorAdvancePending = false;
+      }
       // フロア遷移中は大半のロジックを止めて演出優先にする。
       if (state.floorChangingUntil > state.t) {
         updateEffects(dt);
@@ -2810,23 +2839,18 @@
       const p = state.player;
       const stairs = state.dungeon.stairs;
       if (state.floorAdvancePending) return;
-      if (dist(p,stairs) < 26 && p.key && state.floorChangingUntil <= state.t) {
+      if (dist(p,stairs) < 34 && p.key && state.floorChangingUntil <= state.t) {
+        // 階段に触れた瞬間に鍵を消費して見た目と内部状態を揃える。
+        // これで遷移待ちの短い間に『反応しないアンロック階段』が残らない。
+        p.key = false;
+        state.stairsConsumed = true;
         state.floorAdvancePending = true;
         state.floorAdvanceToken += 1;
-        const token = state.floorAdvanceToken;
+        state.floorAdvanceAt = state.t + 0.32;
         state.floorChangingUntil = state.t + 1.10;
         addFloorTransition();
         playSfx('floor');
         showOverlay('Descending...');
-        setTimeout(() => {
-          if (!state || state.gameOver || token !== state.floorAdvanceToken) return;
-          state.floor++;
-          refreshMagicWeapon(state.player && state.player.bow, state.floor);
-          p.hp = Math.min(p.hpMax, p.hp + Math.floor(p.hpMax * FLOOR_HEAL_RATIO));
-          spawnFloor(state);
-          state.floorChangingUntil = state.t + 0.25;
-          state.floorAdvancePending = false;
-        }, 320);
       }
     }
 
@@ -2905,7 +2929,7 @@
       }
       drawWallEdges(cam, d, minTx, maxTx, minTy, maxTy);
 
-      drawStairs(d.stairs.x-cam.x, d.stairs.y-cam.y, state.player.key);
+      drawStairs(d.stairs.x-cam.x, d.stairs.y-cam.y, state.player.key && !state.floorAdvancePending && !state.stairsConsumed);
 
       for (const o of d.objects) {
         ctx.save();
