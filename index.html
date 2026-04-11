@@ -1,4 +1,4 @@
-<!-- ver. 0.5.30 -->
+<!-- ver. 0.5.31 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.30</div>
+  <div id="versionTag">ver. 0.5.31</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -883,6 +883,10 @@
       if (/Golem|Zombie|Mummy|Dreadnought|World Eater/.test(name)) maxSpeedBase -= 65;
       if (/Dragon|Ancient Dragon|Great Wyrm/.test(name)) maxSpeedBase += 30;
       const projectileSpeed = clampEnemySpeed(170 + rank * 3.2 + (ranged ? 30 : 0));
+      let shooterChance = ranged ? 0.45 : 0;
+      if (/Archer|Hunter|Shaman|Mage|Cultist/.test(name)) shooterChance = 0.62;
+      if (/Beholder|Brain|Necromancer|Lich|Djinni|Efreeti|Dark Mage/.test(name)) shooterChance = 0.78;
+      if (/Dragon|Wyvern|Manticore|Harpy/.test(name)) shooterChance = Math.max(shooterChance, 0.52);
       return {
         name: titleizeEnemyName(name),
         englishName: name,
@@ -892,6 +896,7 @@
         r: Math.max(10, baseR),
         ai,
         ranged,
+        shooterChance,
         tactics,
         shotEvery: Math.max(0.42, 1.9 - tier * 1.1 - (ranged ? 0.12 : 0)),
         projectileSpeed,
@@ -1362,7 +1367,7 @@
           accel: profile.accel || 0,
           maxSpeed: clampEnemySpeed(profile.maxSpeed || 0),
           ai: profile.ai,
-          ranged: !!profile.ranged,
+          ranged: !!profile.ranged && Math.random() < (profile.shooterChance ?? 0.45),
           shotEvery: profile.shotEvery || 1.6,
           projectileSpeed: profile.projectileSpeed || 230,
           poison: !!profile.poison,
@@ -2373,6 +2378,54 @@
 
     // 描画本体。
     // マップ -> 障害物 -> 巣 -> 飛び道具 -> 敵 -> アイテム -> プレイヤー -> 追加エフェクト の順で重ねる。
+
+    function drawPathTile(tx, ty, cam, d){
+      const px = tx*TILE - cam.x;
+      const py = ty*TILE - cam.y;
+      const cut = TILE * 0.28;
+      const open = (xx, yy) => d.tiles[yy] && d.tiles[yy][xx] === 0;
+      const n = open(tx, ty-1), s = open(tx, ty+1), w = open(tx-1, ty), e = open(tx+1, ty);
+      const nw = open(tx-1, ty-1), ne = open(tx+1, ty-1), sw = open(tx-1, ty+1), se = open(tx+1, ty+1);
+      ctx.beginPath();
+      ctx.moveTo(px + (n && w ? cut : 0), py);
+      ctx.lineTo(px + TILE - (n && e ? cut : 0), py);
+      if (n && e) ctx.quadraticCurveTo(px + TILE, py, px + TILE, py + cut); else ctx.lineTo(px + TILE, py);
+      ctx.lineTo(px + TILE, py + TILE - (s && e ? cut : 0));
+      if (s && e) ctx.quadraticCurveTo(px + TILE, py + TILE, px + TILE - cut, py + TILE); else ctx.lineTo(px + TILE, py + TILE);
+      ctx.lineTo(px + (s && w ? cut : 0), py + TILE);
+      if (s && w) ctx.quadraticCurveTo(px, py + TILE, px, py + TILE - cut); else ctx.lineTo(px, py + TILE);
+      ctx.lineTo(px, py + (n && w ? cut : 0));
+      if (n && w) ctx.quadraticCurveTo(px, py, px + cut, py); else ctx.lineTo(px, py);
+      ctx.closePath();
+      ctx.fillStyle = d.theme.path;
+      ctx.fill();
+
+      // 斜めや曲線っぽい見え方を足すため、凹み角には薄いハイライトを入れる。
+      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+
+    function drawWallEdges(cam, d, minTx, maxTx, minTy, maxTy){
+      const cut = TILE * 0.28;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+      ctx.lineWidth = 2;
+      for(let y=minTy;y<=maxTy;y++){
+        for(let x=minTx;x<=maxTx;x++){
+          if (!(d.tiles[y] && d.tiles[y][x]===0)) continue;
+          const px = x*TILE-cam.x, py = y*TILE-cam.y;
+          const open = (xx, yy) => d.tiles[yy] && d.tiles[yy][xx] === 0;
+          const n = open(x, y-1), s = open(x, y+1), w = open(x-1, y), e = open(x+1, y);
+          if (!n) { ctx.beginPath(); ctx.moveTo(px+(w?cut:0), py); ctx.lineTo(px+TILE-(e?cut:0), py); ctx.stroke(); }
+          if (!s) { ctx.beginPath(); ctx.moveTo(px+(w?cut:0), py+TILE); ctx.lineTo(px+TILE-(e?cut:0), py+TILE); ctx.stroke(); }
+          if (!w) { ctx.beginPath(); ctx.moveTo(px, py+(n?cut:0)); ctx.lineTo(px, py+TILE-(s?cut:0)); ctx.stroke(); }
+          if (!e) { ctx.beginPath(); ctx.moveTo(px+TILE, py+(n?cut:0)); ctx.lineTo(px+TILE, py+TILE-(s?cut:0)); ctx.stroke(); }
+        }
+      }
+      ctx.restore();
+    }
+
     function draw(){
       const screenW = canvas.clientWidth, screenH = canvas.clientHeight;
       const w = viewWidth, h = viewHeight;
@@ -2400,11 +2453,11 @@
       for(let y=minTy;y<=maxTy;y++){
         for(let x=minTx;x<=maxTx;x++){
           if (d.tiles[y] && d.tiles[y][x]===0) {
-            ctx.fillStyle = d.theme.path;
-            ctx.fillRect(x*TILE-cam.x, y*TILE-cam.y, TILE+1, TILE+1);
+            drawPathTile(x, y, cam, d);
           }
         }
       }
+      drawWallEdges(cam, d, minTx, maxTx, minTy, maxTy);
 
       drawStairs(d.stairs.x-cam.x, d.stairs.y-cam.y, state.player.key);
 
@@ -2861,8 +2914,8 @@
     function drawBar(x,y,w,h,ratio){
       ctx.fillStyle = '#7c1d1d';
       ctx.fillRect(x,y,w,h);
-      ctx.fillStyle = '#29d44d';
-      ctx.fillRect(x,y,w*clamp(ratio,0,1),h);
+      ctx.fillStyle = ratio < 0 ? '#ff4b4b' : '#29d44d';
+      ctx.fillRect(x,y,w*Math.min(1, Math.abs(ratio)),h);
       ctx.strokeStyle = 'rgba(255,255,255,0.2)';
       ctx.strokeRect(x,y,w,h);
     }
@@ -2871,7 +2924,9 @@
       const p = state.player;
       ui.floorText.textContent = state.floor;
       ui.hpText.textContent = `${Math.ceil(p.hp)} / ${p.hpMax}`;
-      ui.hpFill.style.width = `${(p.hp/p.hpMax)*100}%`;
+      const hpRatio = p.hp / p.hpMax;
+      ui.hpFill.style.width = `${Math.min(100, Math.abs(hpRatio) * 100)}%`;
+      ui.hpFill.style.background = hpRatio < 0 ? '#ff4b4b' : '#2dd45b';
       ui.levelText.textContent = `${p.level} (${Number.isFinite(p.xp) ? p.xp : 0}/${Number.isFinite(p.xpNext) ? p.xpNext : 0})`;
       ui.goldText.textContent = p.gold;
       ui.keyText.textContent = p.key ? 'あり' : 'なし';
