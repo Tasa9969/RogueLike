@@ -1335,11 +1335,12 @@
     }
 
     function createDungeon(floor){
-      const w = 46 + floor*3;
-      const h = 34 + floor*2;
-      const layoutIndex = (Math.max(1, floor) - 1) % 7;
-      const makers = [createRoomyDungeon, createLinearDungeon, createMazeDungeon, createCaveDungeon, createHybridDungeon, createRadialDungeon, createUndergroundLakeDungeon];
-      const built = makers[layoutIndex](w, h, floor);
+      const safeFloor = Math.max(1, floor|0);
+      const sizeFloor = Math.min(safeFloor, 20);
+      const w = 46 + sizeFloor * 2;
+      const h = 34 + sizeFloor;
+      // クリア遷移後の生成ハングを避けるため、次フロア生成は軽量で安定したレイアウトに固定する。
+      const built = (safeFloor % 3 === 0 ? createLinearDungeon : createRoomyDungeon)(w, h, safeFloor);
       const tiles = built.tiles;
       const rooms = built.rooms;
       const startRoom = rooms[0];
@@ -1858,6 +1859,8 @@
         floorAdvancePending: false,
         floorAdvanceToken: 0,
         floorAdvanceAt: 0,
+        isGeneratingFloor: false,
+        pendingFloorAdvance: false,
       };
       refreshMagicWeapon(state.player.bow, state.floor);
       spawnFloor(state);
@@ -1945,8 +1948,11 @@
     function update(dt){
       if (state.gameOver || state.paused) return;
       state.t += dt;
+      if (state.pendingFloorAdvance && state.floorChangingUntil <= state.t) {
+        advanceFloorNow();
+      }
       // フロア遷移中は大半のロジックを止めて演出優先にする。
-      if (state.floorChangingUntil > state.t) {
+      if (state.floorChangingUntil > state.t || state.isGeneratingFloor) {
         updateEffects(dt);
         uiUpdate();
         return;
@@ -2820,24 +2826,35 @@
       state.spawners = state.spawners.filter(s => !s.dead || s.alpha > 0);
     }
 
-    // 階段に触れていて鍵を持っていれば次フロアへ。
-    // 予約遷移は使わず、その場で次フロアを生成する。
+    function advanceFloorNow(){
+      if (state.isGeneratingFloor) return;
+      state.isGeneratingFloor = true;
+      try {
+        state.pendingFloorAdvance = false;
+        state.floor++;
+        refreshMagicWeapon(state.player && state.player.bow, state.floor);
+        state.player.hp = Math.min(state.player.hpMax, state.player.hp + Math.floor(state.player.hpMax * FLOOR_HEAL_RATIO));
+        spawnFloor(state);
+        state.floorChangingUntil = state.t + 0.18;
+      } finally {
+        state.isGeneratingFloor = false;
+      }
+    }
+
+    // 階段に触れたフレームでは即生成せず、次の更新入口で安全に次フロアを作る。
     function checkStairs(){
       const p = state.player;
       const stairs = state.dungeon.stairs;
-      if (state.floorChangingUntil > state.t) return;
+      if (state.floorChangingUntil > state.t || state.pendingFloorAdvance || state.isGeneratingFloor) return;
       if (dist(p,stairs) < 34 && p.key) {
         p.key = false;
         state.stairsConsumed = true;
         state.floorAdvancePending = false;
         state.floorAdvanceAt = 0;
-        state.floor++;
-        refreshMagicWeapon(state.player && state.player.bow, state.floor);
-        state.player.hp = Math.min(state.player.hpMax, state.player.hp + Math.floor(state.player.hpMax * FLOOR_HEAL_RATIO));
+        state.pendingFloorAdvance = true;
+        state.floorChangingUntil = state.t + 0.12;
         addFloorTransition();
         playSfx('floor');
-        spawnFloor(state);
-        state.floorChangingUntil = state.t + 0.18;
       }
     }
 
