@@ -1,4 +1,4 @@
-<!-- ver. 0.5.26 -->
+<!-- ver. 0.5.27 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.26</div>
+  <div id="versionTag">ver. 0.5.27</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -548,17 +548,30 @@
     let state;
 
     const floorThemes = [
-      [{wall:'#2c3138', path:'#747d8a'}, {wall:'#222831', path:'#7f8fa6'}],
-      [{wall:'#2f3f56', path:'#788ea4'}, {wall:'#33475b', path:'#6f8ba4'}],
-      [{wall:'#3b2552', path:'#6c5ea7'}, {wall:'#40214f', path:'#8870ad'}],
-      [{wall:'#4f1b39', path:'#8d5b76'}, {wall:'#1e3752', path:'#aa6f8e'}],
-      [{wall:'#26301b', path:'#9b8d49'}, {wall:'#4e1f1f', path:'#b7a35a'}],
+      { wallHue: 218, wallSat: 14, wallLight: 22, pathHue: 218, pathSat: 16, pathLight: 48 },
+      { wallHue: 204, wallSat: 28, wallLight: 24, pathHue: 206, pathSat: 28, pathLight: 56 },
+      { wallHue: 270, wallSat: 32, wallLight: 22, pathHue: 258, pathSat: 40, pathLight: 55 },
+      { wallHue: 330, wallSat: 34, wallLight: 21, pathHue: 336, pathSat: 32, pathLight: 54 },
+      { wallHue: 96, wallSat: 24, wallLight: 20, pathHue: 52, pathSat: 38, pathLight: 50 },
+      { wallHue: 18, wallSat: 30, wallLight: 20, pathHue: 28, pathSat: 42, pathLight: 52 },
+      { wallHue: 184, wallSat: 28, wallLight: 20, pathHue: 188, pathSat: 34, pathLight: 50 },
+      { wallHue: 8, wallSat: 26, wallLight: 18, pathHue: 8, pathSat: 34, pathLight: 46 },
     ];
 
+    function hsl(h, s, l){
+      return `hsl(${((h % 360) + 360) % 360} ${clamp(s, 0, 100)}% ${clamp(l, 0, 100)}%)`;
+    }
+
     function themeForFloor(floor){
-      const band = Math.floor((floor-1)/5) % floorThemes.length;
-      const choices = floorThemes[band];
-      return choices[randi(0, choices.length-1)];
+      const safeFloor = Math.max(1, floor || 1);
+      const base = floorThemes[(safeFloor - 1) % floorThemes.length];
+      const spin = (safeFloor - 1) * 17;
+      const wave = Math.sin(safeFloor * 0.73);
+      const drift = Math.cos(safeFloor * 0.41);
+      return {
+        wall: hsl(base.wallHue + spin, base.wallSat + wave * 6, base.wallLight + drift * 3),
+        path: hsl(base.pathHue + spin + 6, base.pathSat + drift * 7, base.pathLight + wave * 5),
+      };
     }
 
     let overlayHideTimer = null;
@@ -701,7 +714,7 @@
         key: false,
         sword: {tier:'wood', damage:2, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
-        bow: {tier:'copper', damage:2, arrows:10, max:10, speed:340, cooldown:0.92, last:-9, points:100, effectivePoints:0, label:'カッパー'},
+        bow: {tier:'copper', damage:2, arrows:100, max:100, speed:340, cooldown:0.92, last:-9, points:100, effectivePoints:0, label:'カッパー'},
       };
     }
 
@@ -1136,7 +1149,7 @@
       const colors = ['#bfe8ff', '#8fd1ff', '#5daeff', '#3b82f6', '#2456c9', '#173a8f'];
       const shotEveryBase = [1.8, 1.5, 1.2, 0.95, 0.75, 0.58][tier];
       const projSpeed = [180, 220, 260, 310, 360, 420][tier];
-      const damage = [1, 2, 3, 4, 6, 8][tier];
+      const damage = [3, 6, 9, 12, 18, 24][tier];
       const hp = [10, 14, 18, 24, 30, 40][tier];
       const enemy = {
         type: 'floorTurret',
