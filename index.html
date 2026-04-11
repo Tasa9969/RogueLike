@@ -1,4 +1,4 @@
-<!-- ver. 0.5.25 -->
+<!-- ver. 0.5.26 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.25</div>
+  <div id="versionTag">ver. 0.5.26</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -661,6 +661,21 @@
       return bow;
     }
 
+    function playerAccelForFloor(floor){
+      return Math.min(600, 520 + Math.max(0, (floor || 1) - 1) * 5);
+    }
+
+    function playerMaxSpeedForFloor(floor){
+      return Math.min(250, 210 + Math.max(0, (floor || 1) - 1) * 2);
+    }
+
+    function applyPlayerFloorStats(player, floor){
+      if (!player) return;
+      player.accel = playerAccelForFloor(floor);
+      player.maxSpeed = playerMaxSpeedForFloor(floor);
+      if (player.bow) refreshMagicWeapon(player.bow, floor);
+    }
+
     function createPlayer(){
       const shape = ['circle','square','triangle','diamond'][randi(0,3)];
       return {
@@ -673,8 +688,8 @@
         attack: 4,
         defense: 2,
         mass: 2,
-        accel: 600,
-        maxSpeed: 240,
+        accel: 520,
+        maxSpeed: 210,
         level: 1,
         xp: 0,
         xpNext: 12 * LEVEL_XP_MULT,
@@ -686,7 +701,7 @@
         key: false,
         sword: {tier:'wood', damage:2, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
-        bow: {tier:'copper', damage:2, arrows:10, max:10, speed:340, cooldown:0.92, last:-9, points:0, effectivePoints:0, label:'カッパー'},
+        bow: {tier:'copper', damage:2, arrows:10, max:10, speed:340, cooldown:0.92, last:-9, points:100, effectivePoints:0, label:'カッパー'},
       };
     }
 
@@ -731,7 +746,7 @@
 
     const ENEMY_WINDOW_SIZE = 8;
     const ENEMY_REGULAR_WEIGHTS = [1.0, 1.65, 2.3, 3.0, 3.0, 2.3, 1.65];
-    const PLAYER_SPEED_REFERENCE = 240;
+    const PLAYER_SPEED_REFERENCE = 250;
 
     function clampEnemySpeed(v){
       return Math.min(v, PLAYER_SPEED_REFERENCE * 3);
@@ -960,6 +975,7 @@
     function spawnFloor(state){
       state.dungeon = createDungeon(state.floor);
       const p = state.player;
+      applyPlayerFloorStats(p, state.floor);
       p.x = state.dungeon.start.x;
       p.y = state.dungeon.start.y;
       p.vx = p.vy = 0;
@@ -1028,6 +1044,16 @@
         }
       }
 
+      const chestCount = randi(1, 3);
+      const chestRooms = rooms.slice(1, -1);
+      for (let i = 0; i < chestCount && chestRooms.length; i++) {
+        const room = chestRooms[(i + randi(0, Math.max(0, chestRooms.length - 1))) % chestRooms.length];
+        const cx = room.cx * TILE + rand(-room.w * TILE * 0.18, room.w * TILE * 0.18);
+        const cy = room.cy * TILE + rand(-room.h * TILE * 0.18, room.h * TILE * 0.18);
+        if (!isFarFromStartSpawn(cx, cy, state.dungeon.start)) continue;
+        enemies.push(makeTreasureChest(cx, cy, state.floor));
+      }
+
       const bossType = bossTypeForFloor(state.floor);
       let bossX = state.dungeon.stairs.x - TILE*2;
       let bossY = state.dungeon.stairs.y;
@@ -1057,6 +1083,51 @@
       addFloorTransition();
       playSfx('floor');
       showOverlay('Floor ' + state.floor);
+    }
+
+
+    function makeTreasureChest(x, y, floor){
+      return {
+        type:'treasureChest', x, y, vx:0, vy:0, angle:0, lastContact:0, lastShot:0,
+        damageFlash:0, dead:false, deathAnim:0, hpBarVisible:false,
+        patrolSeed: 0, anchorX:x, anchorY:y, dormant:true,
+        name:'Treasure Chest', englishName:'Treasure Chest',
+        shape:'chest', color:'#8b5a2b', accent:'#e7c84a', r:16,
+        hpMax: Math.round(18 + floor * 2.2), hp: Math.round(18 + floor * 2.2),
+        attack:0, defense:Math.max(0, Math.floor(floor * 0.15)), mass:999,
+        accel:0, maxSpeed:0, turret:false, ranged:false, shotEvery:999, projectileSpeed:0,
+        poison:false, phasesWalls:false, boss:false, chest:true,
+        gold: 0,
+      };
+    }
+
+    function spawnChestLoot(x, y){
+      const count = randi(0, 5);
+      const lootKinds = ['heal','sword','bow','antidote','mushroom'];
+      for (let i = 0; i < count; i++) {
+        const kind = lootKinds[randi(0, lootKinds.length - 1)];
+        const ang = rand(0, Math.PI * 2);
+        const dist0 = rand(10, 28);
+        const lx = x + Math.cos(ang) * dist0;
+        const ly = y + Math.sin(ang) * dist0;
+        if (kind === 'heal') {
+          const mults = [1, 1, 2, 4, 8];
+          const mult = mults[randi(0, mults.length - 1)];
+          let rr = 8 * mult;
+          if (mult >= 2) rr *= 0.5;
+          state.pickups.push({x:lx, y:ly, kind:'heal', mult, healAmount:5 * mult, r:rr});
+        } else if (kind === 'sword') {
+          const swordTiers = ['copper','iron','silver','flame','lizard','gold'];
+          state.pickups.push({x:lx, y:ly, kind:'sword', tier:swordTiers[randi(0, swordTiers.length-1)], r:8, points:randi(1,5)});
+        } else if (kind === 'bow') {
+          const bowTiers = ['copper','silver','gold'];
+          state.pickups.push({x:lx, y:ly, kind:'bow', tier:bowTiers[randi(0, bowTiers.length-1)], r:8, points:randi(1,4)});
+        } else if (kind === 'antidote') {
+          state.pickups.push({x:lx, y:ly, kind:'antidote', r:8});
+        } else if (kind === 'mushroom') {
+          state.pickups.push({x:lx, y:ly, kind:'mushroom', r:8});
+        }
+      }
     }
 
     function makeFloorTurretEnemy(x, y, floor){
@@ -1378,10 +1449,16 @@
               from:'enemy',
               x:spawnX, y:spawnY,
               vx:dir.x*(e.projectileSpeed || 220), vy:dir.y*(e.projectileSpeed || 220),
-              r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack * 0.60)), life:4,
+              r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack * 3.00)), life:4,
               color:e.accent || '#ff9b6a', poison:!!e.poison
             });
           }
+          continue;
+        }
+
+        if (e.chest) {
+          e.vx = 0;
+          e.vy = 0;
           continue;
         }
 
@@ -1933,7 +2010,11 @@
           state.player.key = true;
           showOverlay('鍵を入手');
         }
-        maybeDropWeapon(e.x,e.y);
+        if (e.chest) {
+          spawnChestLoot(e.x, e.y);
+        } else {
+          maybeDropWeapon(e.x,e.y);
+        }
         checkLevelUp();
       }
     }
