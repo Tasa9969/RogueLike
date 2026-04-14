@@ -1,4 +1,4 @@
-<!-- ver. 0.5.54 -->
+<!-- ver. 0.5.55 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.54</div>
+  <div id="versionTag">ver. 0.5.55</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2327,47 +2327,107 @@ function clearStairsLandingZone(dungeon){
         const dy = seg.y2 - seg.y1;
         const len2 = dx * dx + dy * dy;
         if (len2 <= 0.0001) continue;
+
         let t = ((x - seg.x1) * dx + (y - seg.y1) * dy) / len2;
         t = Math.max(0, Math.min(1, t));
         const qx = seg.x1 + dx * t;
         const qy = seg.y1 + dy * t;
+
         const segLen = Math.sqrt(len2);
         const tx = dx / segLen;
         const ty = dy / segLen;
+        let nx = x - qx;
+        let ny = y - qy;
+        const nLen = Math.hypot(nx, ny);
+        if (nLen > 0.0001) {
+          nx /= nLen;
+          ny /= nLen;
+        } else {
+          nx = -ty;
+          ny = tx;
+        }
+
         const dist = Math.hypot(x - qx, y - qy);
         if (!best || dist < best.dist) {
-          best = { dist, qx, qy, tx, ty, thickness: seg.thickness };
+          best = { dist, qx, qy, tx, ty, nx, ny, thickness: seg.thickness };
         }
       }
       return best;
     }
 
-    function trySimpleVectorWallSlide(body, desiredDx, desiredDy){
+    function tryBackoffAndSlide(body, desiredDx, desiredDy, dt){
       const d = state.dungeon;
       if (!d.vectorMaze || !d.mazeSegments || !d.mazeSegments.length) return false;
 
-      const probe = nearestVectorWallInfo(d, body.x + desiredDx, body.y + desiredDy)
-        || nearestVectorWallInfo(d, body.x, body.y);
-      if (!probe) return false;
-
       const desiredLen = Math.hypot(desiredDx, desiredDy);
       if (desiredLen < 0.0001) return false;
-      if (probe.dist > probe.thickness * 0.5 + body.r + 18) return false;
 
-      let tangentDot = desiredDx * probe.tx + desiredDy * probe.ty;
-      if (Math.abs(tangentDot) < 0.001) return false;
+      const hit =
+        nearestVectorWallInfo(d, body.x + desiredDx, body.y + desiredDy) ||
+        nearestVectorWallInfo(d, body.x + desiredDx * 0.5, body.y + desiredDy * 0.5) ||
+        nearestVectorWallInfo(d, body.x, body.y);
 
-      for (const scale of [1.0, 0.85, 0.7, 0.55, 0.4]) {
-        const slideDx = probe.tx * tangentDot * scale;
-        const slideDy = probe.ty * tangentDot * scale;
-        const nx = body.x + slideDx;
-        const ny = body.y + slideDy;
-        if (canMoveCircle(nx, ny, body.r)) {
-          body.x = nx;
-          body.y = ny;
-          return true;
+      if (!hit) return false;
+
+      const nearBand = hit.thickness * 0.5 + body.r + 20;
+      if (hit.dist > nearBand) return false;
+
+      const inLen = Math.max(0.0001, desiredLen);
+      const ix = desiredDx / inLen;
+      const iy = desiredDy / inLen;
+
+      // User-requested behavior:
+      // when blocked in the input direction, back off a little in the reverse direction first.
+      const backoff = Math.min(12, Math.max(4, desiredLen * 0.9));
+      const reverseX = body.x - ix * backoff;
+      const reverseY = body.y - iy * backoff;
+
+      let baseX = body.x;
+      let baseY = body.y;
+      if (canMoveCircle(reverseX, reverseY, body.r)) {
+        baseX = reverseX;
+        baseY = reverseY;
+      }
+
+      // Then bias slightly away from the wall normal so we stop biting into it.
+      const push = Math.max(0, (hit.thickness * 0.5 + body.r + 4) - hit.dist);
+      baseX += hit.nx * push;
+      baseY += hit.ny * push;
+
+      // Finally try to follow the wall tangent.
+      const tangentDot = desiredDx * hit.tx + desiredDy * hit.ty;
+      const tangentChoices = [];
+      if (Math.abs(tangentDot) > 0.001) {
+        const s = Math.sign(tangentDot);
+        tangentChoices.push({x: hit.tx * s, y: hit.ty * s});
+      } else {
+        tangentChoices.push({x: hit.tx, y: hit.ty}, {x: -hit.tx, y: -hit.ty});
+      }
+
+      for (const tan of tangentChoices) {
+        for (const scale of [1.0, 0.85, 0.7, 0.55, 0.4, 0.25]) {
+          const step = desiredLen * scale;
+          const nx = baseX + tan.x * step;
+          const ny = baseY + tan.y * step;
+          if (canMoveCircle(nx, ny, body.r)) {
+            body.x = nx;
+            body.y = ny;
+            const speed = step / Math.max(0.0001, dt);
+            body.vx = tan.x * speed * 0.92;
+            body.vy = tan.y * speed * 0.92;
+            return true;
+          }
         }
       }
+
+      if ((baseX !== body.x || baseY !== body.y) && canMoveCircle(baseX, baseY, body.r)) {
+        body.x = baseX;
+        body.y = baseY;
+        body.vx *= 0.6;
+        body.vy *= 0.6;
+        return true;
+      }
+
       return false;
     }
 
@@ -2412,7 +2472,7 @@ function clearStairsLandingZone(dungeon){
         return;
       }
 
-      if (d.vectorMaze && trySimpleVectorWallSlide(body, desiredDx, desiredDy)) {
+      if (d.vectorMaze && body === state.player && tryBackoffAndSlide(body, desiredDx, desiredDy, dt)) {
         return;
       }
 
