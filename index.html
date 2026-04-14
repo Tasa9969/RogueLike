@@ -1,4 +1,4 @@
-<!-- ver. 0.5.56 -->
+<!-- ver. 0.5.50 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.56</div>
+  <div id="versionTag">ver. 0.5.50</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2259,15 +2259,15 @@ function clearStairsLandingZone(dungeon){
     }
 
     function canOccupyVectorMaze(d, x, y, r){
-      const inset = Math.max(6, r + 2);
+      const inset = Math.max(4, r * 0.55);
 
       function rotateLocal(dx, dy, rot){
         const c = Math.cos(-rot), s = Math.sin(-rot);
         return {x: dx*c - dy*s, y: dx*s + dy*c};
       }
-      function nodePolygon(node, expand=1){
-        const hw = Math.max(10, node.width * 0.5 * expand - inset);
-        const hh = Math.max(10, node.height * 0.5 * expand - inset);
+      function nodePolygon(node){
+        const hw = Math.max(10, node.width * 0.5 - inset);
+        const hh = Math.max(10, node.height * 0.5 - inset);
         let pts = [];
         if (node.shape === 'triangle') {
           pts = [{x:0,y:-hh},{x:hw*0.92,y:hh*0.82},{x:-hw*0.92,y:hh*0.82}];
@@ -2310,161 +2310,22 @@ function clearStairsLandingZone(dungeon){
           }
         }
       }
+
       if (d.mazeSegments) {
         for (const seg of d.mazeSegments) {
           const allowance = Math.max(8, seg.thickness * 0.5 - inset);
           if (pointSegmentDistance(x, y, seg.x1, seg.y1, seg.x2, seg.y2) <= allowance) return true;
         }
       }
-      return false;
-    }
 
-
-    function nearestVectorWallInfo(d, x, y){
-      let best = null;
-      for (const seg of d.mazeSegments || []) {
-        const dx = seg.x2 - seg.x1;
-        const dy = seg.y2 - seg.y1;
-        const len2 = dx * dx + dy * dy;
-        if (len2 <= 0.0001) continue;
-
-        let t = ((x - seg.x1) * dx + (y - seg.y1) * dy) / len2;
-        t = Math.max(0, Math.min(1, t));
-        const qx = seg.x1 + dx * t;
-        const qy = seg.y1 + dy * t;
-
-        const segLen = Math.sqrt(len2);
-        const tx = dx / segLen;
-        const ty = dy / segLen;
-        let nx = x - qx;
-        let ny = y - qy;
-        const nLen = Math.hypot(nx, ny);
-        if (nLen > 0.0001) {
-          nx /= nLen;
-          ny /= nLen;
-        } else {
-          nx = -ty;
-          ny = tx;
+      const tc = tileCoordsFromWorld(x, y);
+      const rTiles = Math.max(1, Math.ceil((r + 6) / TILE));
+      for (let ty = tc.ty - rTiles; ty <= tc.ty + rTiles; ty++) {
+        for (let tx = tc.tx - rTiles; tx <= tc.tx + rTiles; tx++) {
+          if (!isTileInBounds(d.tiles, tx, ty)) continue;
+          if (!isWalkableTileValue(d.tiles[ty][tx])) continue;
+          if (circleRect(x, y, r, tx * TILE, ty * TILE, TILE, TILE)) return true;
         }
-
-        const dist = Math.hypot(x - qx, y - qy);
-        if (!best || dist < best.dist) {
-          best = { dist, qx, qy, tx, ty, nx, ny, thickness: seg.thickness };
-        }
-      }
-      return best;
-    }
-
-    function steerPlayerAlongWall(player, desiredDx, desiredDy, dt){
-      const d = state.dungeon;
-      if (!d.vectorMaze || !d.mazeSegments || !d.mazeSegments.length) return null;
-
-      const desiredLen = Math.hypot(desiredDx, desiredDy);
-      if (desiredLen < 0.0001) return null;
-
-      const hit =
-        nearestVectorWallInfo(d, player.x + desiredDx, player.y + desiredDy) ||
-        nearestVectorWallInfo(d, player.x + desiredDx * 0.5, player.y + desiredDy * 0.5) ||
-        nearestVectorWallInfo(d, player.x, player.y);
-
-      if (!hit) return null;
-      const nearBand = hit.thickness * 0.5 + player.r + 22;
-      if (hit.dist > nearBand) return null;
-
-      const intoWall = desiredDx * (-hit.nx) + desiredDy * (-hit.ny);
-      if (intoWall <= 0.001) return null;
-
-      const tangentDot = desiredDx * hit.tx + desiredDy * hit.ty;
-      if (Math.abs(tangentDot) < 0.001) return null;
-
-      const slideDx = hit.tx * tangentDot;
-      const slideDy = hit.ty * tangentDot;
-
-      const push = Math.max(0, (hit.thickness * 0.5 + player.r + 4) - hit.dist);
-      const biasX = hit.nx * push;
-      const biasY = hit.ny * push;
-
-      for (const scale of [1.0, 0.9, 0.75, 0.6, 0.45, 0.3]) {
-        const nx = player.x + slideDx * scale + biasX;
-        const ny = player.y + slideDy * scale + biasY;
-        if (canMoveCircle(nx, ny, player.r)) {
-          return {
-            x: nx,
-            y: ny,
-            vx: (slideDx * scale) / Math.max(0.0001, dt),
-            vy: (slideDy * scale) / Math.max(0.0001, dt)
-          };
-        }
-      }
-      return null;
-    }
-
-    function tryBackoffAndSlide(body, desiredDx, desiredDy, dt){
-      const d = state.dungeon;
-      if (!d.vectorMaze || !d.mazeSegments || !d.mazeSegments.length) return false;
-
-      const desiredLen = Math.hypot(desiredDx, desiredDy);
-      if (desiredLen < 0.0001) return false;
-
-      const hit =
-        nearestVectorWallInfo(d, body.x + desiredDx, body.y + desiredDy) ||
-        nearestVectorWallInfo(d, body.x + desiredDx * 0.5, body.y + desiredDy * 0.5) ||
-        nearestVectorWallInfo(d, body.x, body.y);
-
-      if (!hit) return false;
-
-      const nearBand = hit.thickness * 0.5 + body.r + 20;
-      if (hit.dist > nearBand) return false;
-
-      const inLen = Math.max(0.0001, desiredLen);
-      const ix = desiredDx / inLen;
-      const iy = desiredDy / inLen;
-      const backoff = Math.min(12, Math.max(4, desiredLen * 0.9));
-      const reverseX = body.x - ix * backoff;
-      const reverseY = body.y - iy * backoff;
-
-      let baseX = body.x;
-      let baseY = body.y;
-      if (canMoveCircle(reverseX, reverseY, body.r)) {
-        baseX = reverseX;
-        baseY = reverseY;
-      }
-
-      const push = Math.max(0, (hit.thickness * 0.5 + body.r + 4) - hit.dist);
-      baseX += hit.nx * push;
-      baseY += hit.ny * push;
-
-      const tangentDot = desiredDx * hit.tx + desiredDy * hit.ty;
-      const tangentChoices = [];
-      if (Math.abs(tangentDot) > 0.001) {
-        const s = Math.sign(tangentDot);
-        tangentChoices.push({x: hit.tx * s, y: hit.ty * s});
-      } else {
-        tangentChoices.push({x: hit.tx, y: hit.ty}, {x: -hit.tx, y: -hit.ty});
-      }
-
-      for (const tan of tangentChoices) {
-        for (const scale of [1.0, 0.85, 0.7, 0.55, 0.4, 0.25]) {
-          const step = desiredLen * scale;
-          const nx = baseX + tan.x * step;
-          const ny = baseY + tan.y * step;
-          if (canMoveCircle(nx, ny, body.r)) {
-            body.x = nx;
-            body.y = ny;
-            const speed = step / Math.max(0.0001, dt);
-            body.vx = tan.x * speed * 0.92;
-            body.vy = tan.y * speed * 0.92;
-            return true;
-          }
-        }
-      }
-
-      if ((baseX !== body.x || baseY !== body.y) && canMoveCircle(baseX, baseY, body.r)) {
-        body.x = baseX;
-        body.y = baseY;
-        body.vx *= 0.6;
-        body.vy *= 0.6;
-        return true;
       }
 
       return false;
@@ -2498,26 +2359,9 @@ function clearStairsLandingZone(dungeon){
         body.y += body.vy * dt;
         return;
       }
-
-      const desiredDx = body.vx * dt;
-      const desiredDy = body.vy * dt;
-      const d = state.dungeon;
-
-      const fullX = body.x + desiredDx;
-      const fullY = body.y + desiredDy;
-      if (canMoveCircle(fullX, fullY, body.r)) {
-        body.x = fullX;
-        body.y = fullY;
-        return;
-      }
-
-      if (d.vectorMaze && body === state.player && tryBackoffAndSlide(body, desiredDx, desiredDy, dt)) {
-        return;
-      }
-
-      const nx = body.x + desiredDx;
+      const nx = body.x + body.vx*dt;
       if (canMoveCircle(nx, body.y, body.r)) body.x = nx; else body.vx *= -0.18;
-      const ny = body.y + desiredDy;
+      const ny = body.y + body.vy*dt;
       if (canMoveCircle(body.x, ny, body.r)) body.y = ny; else body.vy *= -0.18;
     }
 
@@ -2589,17 +2433,6 @@ function clearStairsLandingZone(dungeon){
       const idir = inputDir();
       p.vx += idir.x * p.accel * dt;
       p.vy += idir.y * p.accel * dt;
-
-      if (state.dungeon.vectorMaze && (idir.x || idir.y)) {
-        const guided = steerPlayerAlongWall(p, p.vx * dt, p.vy * dt, dt);
-        if (guided) {
-          p.x = guided.x;
-          p.y = guided.y;
-          p.vx = guided.vx;
-          p.vy = guided.vy;
-        }
-      }
-
       const drag = idir.x||idir.y ? 0.96 : 0.90;
       p.vx *= drag;
       p.vy *= drag;
