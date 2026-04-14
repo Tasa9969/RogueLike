@@ -1,4 +1,4 @@
-<!-- ver. 0.5.55 -->
+<!-- ver. 0.5.56 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.55</div>
+  <div id="versionTag">ver. 0.5.56</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2355,6 +2355,50 @@ function clearStairsLandingZone(dungeon){
       return best;
     }
 
+    function steerPlayerAlongWall(player, desiredDx, desiredDy, dt){
+      const d = state.dungeon;
+      if (!d.vectorMaze || !d.mazeSegments || !d.mazeSegments.length) return null;
+
+      const desiredLen = Math.hypot(desiredDx, desiredDy);
+      if (desiredLen < 0.0001) return null;
+
+      const hit =
+        nearestVectorWallInfo(d, player.x + desiredDx, player.y + desiredDy) ||
+        nearestVectorWallInfo(d, player.x + desiredDx * 0.5, player.y + desiredDy * 0.5) ||
+        nearestVectorWallInfo(d, player.x, player.y);
+
+      if (!hit) return null;
+      const nearBand = hit.thickness * 0.5 + player.r + 22;
+      if (hit.dist > nearBand) return null;
+
+      const intoWall = desiredDx * (-hit.nx) + desiredDy * (-hit.ny);
+      if (intoWall <= 0.001) return null;
+
+      const tangentDot = desiredDx * hit.tx + desiredDy * hit.ty;
+      if (Math.abs(tangentDot) < 0.001) return null;
+
+      const slideDx = hit.tx * tangentDot;
+      const slideDy = hit.ty * tangentDot;
+
+      const push = Math.max(0, (hit.thickness * 0.5 + player.r + 4) - hit.dist);
+      const biasX = hit.nx * push;
+      const biasY = hit.ny * push;
+
+      for (const scale of [1.0, 0.9, 0.75, 0.6, 0.45, 0.3]) {
+        const nx = player.x + slideDx * scale + biasX;
+        const ny = player.y + slideDy * scale + biasY;
+        if (canMoveCircle(nx, ny, player.r)) {
+          return {
+            x: nx,
+            y: ny,
+            vx: (slideDx * scale) / Math.max(0.0001, dt),
+            vy: (slideDy * scale) / Math.max(0.0001, dt)
+          };
+        }
+      }
+      return null;
+    }
+
     function tryBackoffAndSlide(body, desiredDx, desiredDy, dt){
       const d = state.dungeon;
       if (!d.vectorMaze || !d.mazeSegments || !d.mazeSegments.length) return false;
@@ -2375,9 +2419,6 @@ function clearStairsLandingZone(dungeon){
       const inLen = Math.max(0.0001, desiredLen);
       const ix = desiredDx / inLen;
       const iy = desiredDy / inLen;
-
-      // User-requested behavior:
-      // when blocked in the input direction, back off a little in the reverse direction first.
       const backoff = Math.min(12, Math.max(4, desiredLen * 0.9));
       const reverseX = body.x - ix * backoff;
       const reverseY = body.y - iy * backoff;
@@ -2389,12 +2430,10 @@ function clearStairsLandingZone(dungeon){
         baseY = reverseY;
       }
 
-      // Then bias slightly away from the wall normal so we stop biting into it.
       const push = Math.max(0, (hit.thickness * 0.5 + body.r + 4) - hit.dist);
       baseX += hit.nx * push;
       baseY += hit.ny * push;
 
-      // Finally try to follow the wall tangent.
       const tangentDot = desiredDx * hit.tx + desiredDy * hit.ty;
       const tangentChoices = [];
       if (Math.abs(tangentDot) > 0.001) {
@@ -2550,6 +2589,17 @@ function clearStairsLandingZone(dungeon){
       const idir = inputDir();
       p.vx += idir.x * p.accel * dt;
       p.vy += idir.y * p.accel * dt;
+
+      if (state.dungeon.vectorMaze && (idir.x || idir.y)) {
+        const guided = steerPlayerAlongWall(p, p.vx * dt, p.vy * dt, dt);
+        if (guided) {
+          p.x = guided.x;
+          p.y = guided.y;
+          p.vx = guided.vx;
+          p.vy = guided.vy;
+        }
+      }
+
       const drag = idir.x||idir.y ? 0.96 : 0.90;
       p.vx *= drag;
       p.vy *= drag;
