@@ -1,4 +1,4 @@
-<!-- ver. 0.5.44 -->
+<!-- ver. 0.5.48 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.44</div>
+  <div id="versionTag">ver. 0.5.48</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1087,194 +1087,204 @@
       return {tiles, rooms, layout:'linear'};
     }
 
-
     function createMazeDungeon(w,h,floor){
       const tiles = Array.from({length:h},()=>Array(w).fill(1));
       const rooms = [];
       const nodes = [];
       const mazeSegments = [];
       const margin = 6;
-      const centerY = h * 0.54;
-      const trunkSteps = 5 + Math.min(3, Math.floor(floor / 6));
-      const branchBudget = 4 + Math.min(4, Math.floor(floor / 5));
-      const mainThickness = rand(7.2, 9.4) * TILE;
-      const branchThickness = rand(3.8, 5.0) * TILE;
+      const startTy = Math.floor(h * 0.28);
+      const endTy = Math.floor(h * 0.72);
 
       function tileCenter(tx, ty){
         return {x:(tx + 0.5) * TILE, y:(ty + 0.5) * TILE};
       }
 
-      function makeRoomMeta(kind){
-        const pick = Math.random();
-        if (kind === 'start') return {vectorShape:'ellipse', rxTiles:rand(2.9, 3.8), ryTiles:rand(2.4, 3.3)};
-        if (kind === 'stairs') {
-          if (Math.random() < 0.45) return {vectorShape:'polygon', radiusTiles:rand(2.9, 4.2), sides:6 + (Math.random()<0.5?0:2), rotation:rand(0, Math.PI)};
-          return {vectorShape:'rect', rxTiles:rand(2.7, 3.8), ryTiles:rand(2.7, 3.8)};
+      function carveSegmentToTiles(seg){
+        const x1 = seg.x1 / TILE - 0.5;
+        const y1 = seg.y1 / TILE - 0.5;
+        const x2 = seg.x2 / TILE - 0.5;
+        const y2 = seg.y2 / TILE - 0.5;
+        const radiusTiles = Math.max(1.2, seg.thickness / TILE * 0.5);
+        const steps = Math.max(12, Math.ceil(Math.hypot(x2-x1, y2-y1) * 3));
+        for(let i=0;i<=steps;i++){
+          const t = i / steps;
+          const cx = x1 + (x2 - x1) * t;
+          const cy = y1 + (y2 - y1) * t;
+          carveEllipse(tiles, cx, cy, radiusTiles, radiusTiles);
         }
-        if (pick < 0.22) return {vectorShape:'circle', radiusTiles:rand(2.4, 4.2)};
-        if (pick < 0.48) return {vectorShape:'ellipse', rxTiles:rand(2.6, 4.6), ryTiles:rand(2.0, 3.8)};
-        if (pick < 0.7) return {vectorShape:'rect', rxTiles:rand(2.2, 4.0), ryTiles:rand(2.0, 3.6)};
-        return {vectorShape:'polygon', radiusTiles:rand(2.5, 4.3), sides:5 + Math.floor(Math.random()*4), rotation:rand(0, Math.PI)};
       }
 
-      function roomFootprint(room){
-        const rx = room.rx || (room.radius || TILE * 3);
-        const ry = room.ry || room.rx || (room.radius || TILE * 3);
-        return {
-          x: clamp(Math.floor(room.cx - rx / TILE), 2, w - 4),
-          y: clamp(Math.floor(room.cy - ry / TILE), 2, h - 4),
-          w: clamp(Math.ceil((rx * 2) / TILE), 4, w - 4),
-          h: clamp(Math.ceil((ry * 2) / TILE), 4, h - 4),
-        };
-      }
-
-      function addRoom(tx, ty, kind='hub'){
-        tx = clamp(Math.round(tx), margin, w - margin - 1);
-        ty = clamp(Math.round(ty), margin, h - margin - 1);
-        const center = tileCenter(tx, ty);
-        const meta = makeRoomMeta(kind);
+      function carveNodeToTiles(node){
         const room = {
+          cx: node.tx,
+          cy: node.ty,
+          x: Math.round(node.tx - node.wTiles * 0.5),
+          y: Math.round(node.ty - node.hTiles * 0.5),
+          w: Math.max(4, Math.round(node.wTiles)),
+          h: Math.max(4, Math.round(node.hTiles)),
+        };
+        if(node.shape === 'ellipse'){
+          carveEllipse(tiles, node.tx, node.ty, node.wTiles * 0.5, node.hTiles * 0.5);
+        } else if(node.shape === 'octagon'){
+          carveBlobRoom(tiles, room, 'octagon');
+        } else if(node.shape === 'diamond'){
+          carveBlobRoom(tiles, room, 'diamond');
+        } else {
+          carveRoom(tiles, room);
+        }
+      }
+
+      function addNode(tx, ty, shape, wTiles, hTiles, kind='hub'){
+        tx = clamp(tx, margin, w - margin - 1);
+        ty = clamp(ty, margin, h - margin - 1);
+        const center = tileCenter(tx, ty);
+        const node = {
           tx, ty,
-          cx: tx,
-          cy: ty,
           x: center.x,
           y: center.y,
+          shape,
           kind,
-          vectorShape: meta.vectorShape,
-          rotation: meta.rotation || 0,
-          sides: meta.sides || 0,
+          wTiles,
+          hTiles,
+          width: wTiles * TILE,
+          height: hTiles * TILE,
         };
-        if (meta.vectorShape === 'circle') {
-          room.radius = meta.radiusTiles * TILE;
-          room.rx = room.radius;
-          room.ry = room.radius;
-          room.shape = 'ellipse';
-        } else if (meta.vectorShape === 'polygon') {
-          room.radius = meta.radiusTiles * TILE;
-          room.rx = room.radius;
-          room.ry = room.radius * rand(0.82, 1.08);
-          room.shape = 'polygon';
+        node.radius = Math.max(node.width, node.height) * 0.5;
+        nodes.push(node);
+        rooms.push({
+          x: clamp(Math.floor(tx - wTiles * 0.5), 2, w - 4),
+          y: clamp(Math.floor(ty - hTiles * 0.5), 2, h - 4),
+          w: Math.max(4, Math.round(wTiles)),
+          h: Math.max(4, Math.round(hTiles)),
+          cx: Math.round(tx),
+          cy: Math.round(ty),
+          shape
+        });
+        carveNodeToTiles(node);
+        return node;
+      }
+
+      function chooseRoomShape(depthFloor, kind='hub'){
+        const p = Math.random();
+        if (depthFloor >= 14 && p < 0.16) return 'octagon';
+        if (depthFloor >= 10 && p < 0.30) return 'ellipse';
+        if (depthFloor >= 18 && p < 0.38) return 'diamond';
+        return 'rect';
+      }
+
+      function addSegment(a, b, mult){
+        const base = TILE * 0.72;
+        const thickness = base * mult;
+        const seg = {x1:a.x, y1:a.y, x2:b.x, y2:b.y, thickness};
+        mazeSegments.push(seg);
+        carveSegmentToTiles(seg);
+        return seg;
+      }
+
+      const trunkNodes = [];
+      const trunkCount = 6 + Math.min(4, Math.floor(floor / 4));
+      let tx = margin + 1;
+      let ty = startTy;
+      for(let i=0;i<trunkCount;i++){
+        const t = i / Math.max(1, trunkCount - 1);
+        if(i===0){
+          tx = margin + 2;
+          ty = startTy;
+        } else if(i===trunkCount-1){
+          tx = w - margin - 3;
+          ty = endTy;
         } else {
-          room.rx = meta.rxTiles * TILE;
-          room.ry = meta.ryTiles * TILE;
-          room.shape = meta.vectorShape === 'rect' ? 'rect' : 'ellipse';
-        }
-        const fp = roomFootprint(room);
-        room.x = fp.x; room.y = fp.y; room.w = fp.w; room.h = fp.h;
-        rooms.push(room);
-        nodes.push({tx, ty, x:center.x, y:center.y, radius:Math.max(room.rx, room.ry), kind, room});
-        return room;
-      }
-
-      function addSegmentTiles(ax, ay, bx, by, thicknessPx, lane='main'){
-        const a = tileCenter(ax, ay);
-        const b = tileCenter(bx, by);
-        mazeSegments.push({x1:a.x, y1:a.y, x2:b.x, y2:b.y, thickness:thicknessPx, lane});
-      }
-
-      function roomContainsPx(room, px, py, inset=0){
-        const dx = px - room.x;
-        const dy = py - room.y;
-        if (room.vectorShape === 'circle') {
-          return Math.hypot(dx, dy) <= Math.max(8, room.radius - inset);
-        }
-        if (room.vectorShape === 'ellipse') {
-          const rx = Math.max(8, room.rx - inset);
-          const ry = Math.max(8, room.ry - inset);
-          return (dx*dx)/(rx*rx) + (dy*dy)/(ry*ry) <= 1;
-        }
-        if (room.vectorShape === 'rect') {
-          return Math.abs(dx) <= Math.max(8, room.rx - inset) && Math.abs(dy) <= Math.max(8, room.ry - inset);
-        }
-        const sides = Math.max(5, room.sides || 6);
-        const ang = Math.atan2(dy, dx) - (room.rotation || 0);
-        const sector = (Math.PI * 2) / sides;
-        const local = ((ang % sector) + sector) % sector;
-        const edge = Math.cos(Math.PI / sides) / Math.cos(local - sector / 2);
-        const rx = Math.max(8, room.rx - inset);
-        const ry = Math.max(8, room.ry - inset);
-        const rr = Math.hypot(dx / rx, dy / ry);
-        return rr <= edge;
-      }
-
-      function rasterizeVectorMaze(){
-        for (let ty = 1; ty < h - 1; ty++) {
-          for (let tx = 1; tx < w - 1; tx++) {
-            const px = (tx + 0.5) * TILE;
-            const py = (ty + 0.5) * TILE;
-            let open = false;
-            for (const room of rooms) {
-              if (roomContainsPx(room, px, py, 0)) { open = true; break; }
-            }
-            if (!open) {
-              for (const seg of mazeSegments) {
-                if (pointSegmentDistance(px, py, seg.x1, seg.y1, seg.x2, seg.y2) <= seg.thickness * 0.5) {
-                  open = true;
-                  break;
-                }
-              }
-            }
-            if (open) tiles[ty][tx] = 0;
+          let targetX = margin + 4 + t * (w - margin * 2 - 8);
+          let targetY = h * (0.5 + Math.sin(t * Math.PI * 1.35 - 0.8) * 0.18) + rand(-3.5, 3.5);
+          if(Math.random() < 0.22){
+            // horizontal or vertical flavored waypoint
+            if(Math.random() < 0.5) targetY = ty;
+            else targetX = tx;
           }
+          tx = clamp(targetX, margin, w - margin - 1);
+          ty = clamp(targetY, margin, h - margin - 1);
         }
+
+        const isEnd = i===0 || i===trunkCount-1;
+        const shape = isEnd ? 'rect' : chooseRoomShape(floor);
+        const wTiles = isEnd ? rand(8, 12) : rand(7, 13);
+        const hTiles = isEnd ? rand(6, 9) : rand(5, 10);
+        const node = addNode(tx, ty, shape, wTiles, hTiles, isEnd ? 'major' : 'hub');
+        trunkNodes.push(node);
       }
 
-      const startRoom = addRoom(margin + 3, clamp(centerY + rand(3, 7), margin, h - margin - 1), 'start');
-      let cursorX = startRoom.tx;
-      let cursorY = startRoom.ty;
-      let prevRoom = startRoom;
-      const trunk = [startRoom];
-
-      for (let i = 0; i < trunkSteps; i++) {
-        const nextX = clamp(Math.round(lerp(margin + 8, w - margin - 8, (i + 1) / (trunkSteps + 1)) + rand(-2, 3)), margin, w - margin - 1);
-        const bendY = clamp(Math.round(centerY + (i % 2 === 0 ? -1 : 1) * rand(3, 7)), margin, h - margin - 1);
-        if (Math.abs(nextX - cursorX) > 1) addSegmentTiles(cursorX, cursorY, nextX, cursorY, mainThickness, 'main');
-        if (Math.abs(bendY - cursorY) > 1) addSegmentTiles(nextX, cursorY, nextX, bendY, mainThickness, 'main');
-        const room = addRoom(nextX, bendY, i === trunkSteps - 1 ? 'stairs' : 'hub');
-        prevRoom = room;
-        cursorX = room.tx;
-        cursorY = room.ty;
-        trunk.push(room);
-      }
-
-      for (let i = 1; i < trunk.length - 1 && i <= branchBudget; i++) {
-        if (Math.random() < 0.15) continue;
-        const base = trunk[i];
-        const horizontalFirst = Math.random() < 0.5;
-        const dirX = Math.random() < 0.5 ? -1 : 1;
-        const dirY = Math.random() < 0.5 ? -1 : 1;
-        const reachX = rand(5, 10) * dirX;
-        const reachY = rand(4, 8) * dirY;
-        let tx = base.tx;
-        let ty = base.ty;
-        if (horizontalFirst) {
-          const midX = clamp(base.tx + reachX, margin, w - margin - 1);
-          addSegmentTiles(base.tx, base.ty, midX, base.ty, branchThickness, 'branch');
-          tx = midX;
-          if (Math.random() < 0.9) {
-            const midY = clamp(base.ty + reachY, margin, h - margin - 1);
-            addSegmentTiles(tx, base.ty, tx, midY, branchThickness, 'branch');
-            ty = midY;
-          }
+      // connect trunk with free angles, sometimes orthogonal doglegs
+      for(let i=0;i<trunkNodes.length-1;i++){
+        const a = trunkNodes[i], b = trunkNodes[i+1];
+        const mult = randi(1,4);
+        if(Math.random() < 0.26){
+          const midTx = Math.random() < 0.5 ? a.tx : b.tx;
+          const midTy = midTx === a.tx ? b.ty : a.ty;
+          const mid = addNode(midTx, midTy, 'rect', rand(4,6), rand(4,6), 'corner');
+          addSegment(a, mid, mult);
+          addSegment(mid, b, mult);
         } else {
-          const midY = clamp(base.ty + reachY, margin, h - margin - 1);
-          addSegmentTiles(base.tx, base.ty, base.tx, midY, branchThickness, 'branch');
-          ty = midY;
-          if (Math.random() < 0.9) {
-            const midX = clamp(base.tx + reachX, margin, w - margin - 1);
-            addSegmentTiles(base.tx, ty, midX, ty, branchThickness, 'branch');
-            tx = midX;
-          }
+          addSegment(a, b, mult);
         }
-        addRoom(tx, ty, Math.random() < 0.35 ? 'treasure' : 'branch');
       }
 
-      rasterizeVectorMaze();
+      // branches
+      const branchCount = 3 + Math.min(6, Math.floor(floor / 3));
+      for(let i=0;i<branchCount;i++){
+        const anchor = trunkNodes[randi(1, Math.max(1, trunkNodes.length - 2))];
+        const angle = Math.random() < 0.22
+          ? [0, Math.PI*0.5, Math.PI, Math.PI*1.5][randi(0,3)]
+          : rand(-Math.PI, Math.PI);
+        const len = rand(5, 12);
+        let tx2 = clamp(anchor.tx + Math.cos(angle) * len, margin, w - margin - 1);
+        let ty2 = clamp(anchor.ty + Math.sin(angle) * len, margin, h - margin - 1);
+        if(Math.random() < 0.18){
+          if(Math.random() < 0.5) tx2 = anchor.tx;
+          else ty2 = anchor.ty;
+        }
+        const shape = chooseRoomShape(floor);
+        const branchNode = addNode(tx2, ty2, shape, rand(5,11), rand(4,9), 'branch');
+        const mult = randi(1,4);
+        if(Math.random() < 0.22){
+          const dog = addNode(
+            Math.random() < 0.5 ? anchor.tx : branchNode.tx,
+            Math.random() < 0.5 ? branchNode.ty : anchor.ty,
+            'rect',
+            rand(4,6), rand(4,6),
+            'corner'
+          );
+          addSegment(anchor, dog, mult);
+          addSegment(dog, branchNode, mult);
+        } else {
+          addSegment(anchor, branchNode, mult);
+        }
+
+        if(Math.random() < 0.42){
+          const angle2 = Math.random() < 0.2
+            ? [0, Math.PI*0.5, Math.PI, Math.PI*1.5][randi(0,3)]
+            : angle + rand(-1.15, 1.15);
+          const len2 = rand(4, 9);
+          let tx3 = clamp(branchNode.tx + Math.cos(angle2) * len2, margin, w - margin - 1);
+          let ty3 = clamp(branchNode.ty + Math.sin(angle2) * len2, margin, h - margin - 1);
+          const shape2 = chooseRoomShape(floor);
+          const leaf = addNode(tx3, ty3, shape2, rand(5,10), rand(4,8), 'leaf');
+          addSegment(branchNode, leaf, randi(1,4));
+        }
+      }
+
+      // ensure start and stairs room are rectangular and roomy
+      const startNode = trunkNodes[0];
+      const stairsNode = trunkNodes[trunkNodes.length - 1];
+      startNode.shape = 'rect'; startNode.wTiles = 10; startNode.hTiles = 8; startNode.width = startNode.wTiles*TILE; startNode.height = startNode.hTiles*TILE; startNode.radius = Math.max(startNode.width, startNode.height)*0.5;
+      stairsNode.shape = 'rect'; stairsNode.wTiles = 10; stairsNode.hTiles = 8; stairsNode.width = stairsNode.wTiles*TILE; stairsNode.height = stairsNode.hTiles*TILE; stairsNode.radius = Math.max(stairsNode.width, stairsNode.height)*0.5;
+      carveNodeToTiles(startNode);
+      carveNodeToTiles(stairsNode);
 
       return {
         tiles,
         rooms,
-        layout:'segment-maze-orthogonal',
+        layout:'segment-maze',
         vectorMaze:true,
         mazeSegments,
         mazeNodes:nodes,
@@ -1442,7 +1452,73 @@
     }
 
 
-    function clearStairsLandingZone(dungeon){
+    
+    function findMainRouteTiles(dungeon){
+      const tiles = dungeon.tiles;
+      const startTile = tileCoordsFromWorld(dungeon.start.x, dungeon.start.y);
+      const stairsTile = tileCoordsFromWorld(dungeon.stairs.x, dungeon.stairs.y);
+      const startKey = `${startTile.tx},${startTile.ty}`;
+      const goalKey = `${stairsTile.tx},${stairsTile.ty}`;
+      const q = [[startTile.tx, startTile.ty]];
+      const prev = new Map();
+      prev.set(startKey, null);
+
+      for (let i = 0; i < q.length; i++) {
+        const [cx, cy] = q[i];
+        if (cx === stairsTile.tx && cy === stairsTile.ty) break;
+        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        for (const [dx, dy] of dirs) {
+          const nx = cx + dx, ny = cy + dy;
+          const key = `${nx},${ny}`;
+          if (!isTileInBounds(tiles, nx, ny) || prev.has(key)) continue;
+          if (!isWalkableTileValue(tiles[ny][nx])) continue;
+          prev.set(key, [cx, cy]);
+          q.push([nx, ny]);
+        }
+      }
+
+      if (!prev.has(goalKey)) return [];
+      const path = [];
+      let cur = [stairsTile.tx, stairsTile.ty];
+      while (cur) {
+        path.push({tx: cur[0], ty: cur[1]});
+        cur = prev.get(`${cur[0]},${cur[1]}`);
+      }
+      path.reverse();
+      return path;
+    }
+
+    function rectOverlapsPathBand(obj, pathTiles, band = 1){
+      const left = obj.x;
+      const right = obj.x + obj.w;
+      const top = obj.y;
+      const bottom = obj.y + obj.h;
+      for (const tile of pathTiles) {
+        const minX = (tile.tx - band) * TILE;
+        const maxX = (tile.tx + band + 1) * TILE;
+        const minY = (tile.ty - band) * TILE;
+        const maxY = (tile.ty + band + 1) * TILE;
+        if (right > minX && left < maxX && bottom > minY && top < maxY) return true;
+      }
+      return false;
+    }
+
+    function clearMainRouteObstacles(dungeon){
+      const pathTiles = findMainRouteTiles(dungeon);
+      if (!pathTiles.length) return;
+
+      const band = dungeon.vectorMaze ? 1 : 0;
+      dungeon.objects = dungeon.objects.filter(o => !rectOverlapsPathBand(o, pathTiles, band));
+
+      const startBandRadius = TILE * 2.2;
+      dungeon.objects = dungeon.objects.filter(o => {
+        const ox = o.x + o.w * 0.5;
+        const oy = o.y + o.h * 0.5;
+        return dist({x: ox, y: oy}, dungeon.start) > startBandRadius;
+      });
+    }
+
+function clearStairsLandingZone(dungeon){
       const stairsTile = tileCoordsFromWorld(dungeon.stairs.x, dungeon.stairs.y);
       for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
         const tx = stairsTile.tx + ox, ty = stairsTile.ty + oy;
@@ -1501,6 +1577,7 @@
       ensureDungeonReachability(dungeon);
       dungeon.objects = scatterDungeonProps(tiles, rooms, startRoom, stairsRoom);
       clearStairsLandingZone(dungeon);
+      clearMainRouteObstacles(dungeon);
       return dungeon;
     }
 
@@ -2028,36 +2105,26 @@
       return Math.hypot(px - qx, py - qy);
     }
 
-
-    function roomContainsVector(room, x, y, inset=0){
-      const px = x - room.x;
-      const py = y - room.y;
-      if (room.vectorShape === 'circle') {
-        return Math.hypot(px, py) <= Math.max(8, room.radius - inset);
-      }
-      if (room.vectorShape === 'ellipse') {
-        const rx = Math.max(8, room.rx - inset);
-        const ry = Math.max(8, room.ry - inset);
-        return (px*px)/(rx*rx) + (py*py)/(ry*ry) <= 1;
-      }
-      if (room.vectorShape === 'rect') {
-        return Math.abs(px) <= Math.max(8, room.rx - inset) && Math.abs(py) <= Math.max(8, room.ry - inset);
-      }
-      const sides = Math.max(5, room.sides || 6);
-      const ang = Math.atan2(py, px) - (room.rotation || 0);
-      const sector = (Math.PI * 2) / sides;
-      const local = ((ang % sector) + sector) % sector;
-      const edge = Math.cos(Math.PI / sides) / Math.cos(local - sector / 2);
-      const rx = Math.max(8, room.rx - inset);
-      const ry = Math.max(8, room.ry - inset);
-      const rr = Math.hypot(px / rx, py / ry);
-      return rr <= edge;
-    }
-
     function canOccupyVectorMaze(d, x, y, r){
       const inset = Math.max(6, r + 2);
-      for (const room of d.rooms || []) {
-        if (room.vectorShape && roomContainsVector(room, x, y, inset)) return true;
+      if (d.mazeNodes) {
+        for (const node of d.mazeNodes) {
+          const hw = Math.max(10, node.width * 0.5 - inset);
+          const hh = Math.max(10, node.height * 0.5 - inset);
+          const dx = x - node.x;
+          const dy = y - node.y;
+          if (node.shape === 'rect') {
+            if (Math.abs(dx) <= hw && Math.abs(dy) <= hh) return true;
+          } else if (node.shape === 'diamond') {
+            if ((Math.abs(dx) / hw) + (Math.abs(dy) / hh) <= 1) return true;
+          } else if (node.shape === 'octagon') {
+            const nx = Math.abs(dx) / hw;
+            const ny = Math.abs(dy) / hh;
+            if (Math.max(nx, ny) <= 1 && (nx + ny) <= 1.45) return true;
+          } else {
+            if ((dx*dx)/(hw*hw) + (dy*dy)/(hh*hh) <= 1) return true;
+          }
+        }
       }
       if (d.mazeSegments) {
         for (const seg of d.mazeSegments) {
@@ -3105,90 +3172,60 @@
       // 単一色の床を優先し、境界線は描かない。
     }
 
-
-    function traceRoomShape(room, cam, expand=0){
-      const x = room.x - cam.x;
-      const y = room.y - cam.y;
-      if (room.vectorShape === 'circle') {
-        ctx.arc(x, y, room.radius + expand, 0, Math.PI * 2);
-        return;
-      }
-      if (room.vectorShape === 'ellipse') {
-        ctx.ellipse(x, y, room.rx + expand, room.ry + expand, room.rotation || 0, 0, Math.PI * 2);
-        return;
-      }
-      if (room.vectorShape === 'rect') {
-        ctx.roundRect(x - room.rx - expand, y - room.ry - expand, (room.rx + expand) * 2, (room.ry + expand) * 2, Math.max(16, Math.min(room.rx, room.ry) * 0.3));
-        return;
-      }
-      const sides = Math.max(5, room.sides || 6);
-      const rot = room.rotation || 0;
-      for (let i = 0; i < sides; i++) {
-        const a = rot + (Math.PI * 2 * i) / sides;
-        const px = x + Math.cos(a) * (room.rx + expand);
-        const py = y + Math.sin(a) * (room.ry + expand);
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-    }
-
     function drawVectorMaze(d, cam){
+      function drawNodeShape(node, ox, oy, fillOnly=false){
+        const x = node.x - cam.x + ox;
+        const y = node.y - cam.y + oy;
+        const w = node.width * 0.92;
+        const h = node.height * 0.92;
+        const hw = w * 0.5;
+        const hh = h * 0.5;
+        ctx.beginPath();
+        if (node.shape === 'rect') {
+          ctx.roundRect(x - hw, y - hh, w, h, Math.min(22, Math.min(hw, hh) * 0.22));
+        } else if (node.shape === 'diamond') {
+          ctx.moveTo(x, y - hh);
+          ctx.lineTo(x + hw, y);
+          ctx.lineTo(x, y + hh);
+          ctx.lineTo(x - hw, y);
+          ctx.closePath();
+        } else if (node.shape === 'octagon') {
+          const cutX = hw * 0.36, cutY = hh * 0.36;
+          ctx.moveTo(x - hw + cutX, y - hh);
+          ctx.lineTo(x + hw - cutX, y - hh);
+          ctx.lineTo(x + hw, y - hh + cutY);
+          ctx.lineTo(x + hw, y + hh - cutY);
+          ctx.lineTo(x + hw - cutX, y + hh);
+          ctx.lineTo(x - hw + cutX, y + hh);
+          ctx.lineTo(x - hw, y + hh - cutY);
+          ctx.lineTo(x - hw, y - hh + cutY);
+          ctx.closePath();
+        } else {
+          ctx.ellipse(x, y, hw, hh, 0, 0, Math.PI * 2);
+        }
+        if (fillOnly) ctx.fill(); else ctx.stroke();
+      }
+
       ctx.save();
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      const shadowOffset = 6;
-      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
-      for (const seg of d.mazeSegments || []) {
-        ctx.lineWidth = seg.thickness;
-        ctx.beginPath();
-        ctx.moveTo(seg.x1 - cam.x + shadowOffset, seg.y1 - cam.y + shadowOffset);
-        ctx.lineTo(seg.x2 - cam.x + shadowOffset, seg.y2 - cam.y + shadowOffset);
-        ctx.stroke();
-      }
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      for (const room of d.rooms || []) {
-        if (!room.vectorShape) continue;
-        ctx.beginPath();
-        traceRoomShape({...room, x: room.x + shadowOffset, y: room.y + shadowOffset}, cam, 0);
-        ctx.fill();
-      }
-
       const pathColor = d.theme.path || '#d8c5b1';
-      const highlight = 'rgba(255,255,255,0.12)';
-      const branchColor = 'rgba(218,198,173,0.96)';
+      ctx.strokeStyle = pathColor;
+      ctx.fillStyle = pathColor;
+
       for (const seg of d.mazeSegments || []) {
-        ctx.strokeStyle = seg.lane === 'main' ? pathColor : branchColor;
         ctx.lineWidth = seg.thickness;
         ctx.beginPath();
         ctx.moveTo(seg.x1 - cam.x, seg.y1 - cam.y);
         ctx.lineTo(seg.x2 - cam.x, seg.y2 - cam.y);
         ctx.stroke();
+      }
 
-        ctx.strokeStyle = highlight;
-        ctx.lineWidth = Math.max(4, seg.thickness * 0.1);
-        ctx.beginPath();
-        if (Math.abs(seg.y2 - seg.y1) < 0.1) {
-          ctx.moveTo(seg.x1 - cam.x, seg.y1 - cam.y - seg.thickness * 0.16);
-          ctx.lineTo(seg.x2 - cam.x, seg.y2 - cam.y - seg.thickness * 0.16);
-        } else {
-          ctx.moveTo(seg.x1 - cam.x - seg.thickness * 0.16, seg.y1 - cam.y);
-          ctx.lineTo(seg.x2 - cam.x - seg.thickness * 0.16, seg.y2 - cam.y);
-        }
-        ctx.stroke();
+      for (const node of d.mazeNodes || []) {
+        drawNodeShape(node, 0, 0, true);
       }
-      for (const room of d.rooms || []) {
-        if (!room.vectorShape) continue;
-        ctx.beginPath();
-        traceRoomShape(room, cam, 0);
-        ctx.fillStyle = pathColor;
-        ctx.fill();
-        ctx.beginPath();
-        traceRoomShape(room, cam, -Math.max(4, Math.min(room.rx || room.radius, room.ry || room.radius) * 0.18));
-        ctx.strokeStyle = highlight;
-        ctx.lineWidth = Math.max(3, Math.min(room.rx || room.radius, room.ry || room.radius) * 0.12);
-        ctx.stroke();
-      }
+
       ctx.restore();
     }
 
