@@ -1,4 +1,4 @@
-<!-- ver. 0.5.38 -->
+<!-- ver. 0.5.40 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.38</div>
+  <div id="versionTag">ver. 0.5.40</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1090,92 +1090,156 @@
     function createMazeDungeon(w,h,floor){
       const tiles = Array.from({length:h},()=>Array(w).fill(1));
       const rooms = [];
-      const margin = 3;
-      const makeRoomFromCenter = (cx, cy, rw, rh, shape='ellipse')=>{
+
+      const inBounds = (x,y)=> y>=1 && y<h-1 && x>=1 && x<w-1;
+      const carveDisk = (cx, cy, radius)=>{
+        const r = Math.max(1.2, radius);
+        for(let y=Math.floor(cy-r)-1;y<=Math.ceil(cy+r)+1;y++){
+          if(!tiles[y]) continue;
+          for(let x=Math.floor(cx-r)-1;x<=Math.ceil(cx+r)+1;x++){
+            if(tiles[y][x]===undefined) continue;
+            const dx = x + 0.5 - cx;
+            const dy = y + 0.5 - cy;
+            if(dx*dx + dy*dy <= r*r) tiles[y][x] = 0;
+          }
+        }
+      };
+      const carveSegment = (ax, ay, bx, by, radiusA=2, radiusB=2)=>{
+        const steps = Math.max(2, Math.ceil(dist({x:ax,y:ay},{x:bx,y:by}) * 1.5));
+        for(let i=0;i<=steps;i++){
+          const t = i / steps;
+          const x = lerp(ax, bx, t);
+          const y = lerp(ay, by, t);
+          const width = lerp(radiusA, radiusB, t);
+          carveDisk(x, y, width);
+        }
+      };
+      const pointInPoly = (px, py, poly)=>{
+        let inside = false;
+        for(let i=0, j=poly.length-1;i<poly.length;j=i++){
+          const xi = poly[i].x, yi = poly[i].y;
+          const xj = poly[j].x, yj = poly[j].y;
+          const hit = ((yi > py) !== (yj > py)) && (px < ((xj - xi) * (py - yi)) / ((yj - yi) || 0.00001) + xi);
+          if(hit) inside = !inside;
+        }
+        return inside;
+      };
+      const carvePolygon = (points)=>{
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for(const p of points){
+          minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+        }
+        minX = Math.max(1, Math.floor(minX)-1);
+        minY = Math.max(1, Math.floor(minY)-1);
+        maxX = Math.min(w-2, Math.ceil(maxX)+1);
+        maxY = Math.min(h-2, Math.ceil(maxY)+1);
+        for(let y=minY;y<=maxY;y++){
+          for(let x=minX;x<=maxX;x++){
+            if(pointInPoly(x + 0.5, y + 0.5, points)) tiles[y][x] = 0;
+          }
+        }
+      };
+      const addRoomFromCenter = (cx, cy, rx, ry, sides=6, jitter=0.22, forceShape='poly')=>{
+        const pts = [];
+        const rot = Math.random() * Math.PI * 2;
+        for(let i=0;i<sides;i++){
+          const a = rot + (i / sides) * Math.PI * 2;
+          const jr = 1 + (Math.random() * 2 - 1) * jitter;
+          pts.push({
+            x: clamp(cx + Math.cos(a) * rx * jr, 1, w-2),
+            y: clamp(cy + Math.sin(a) * ry * jr, 1, h-2),
+          });
+        }
+        carvePolygon(pts);
         const room = {
-          x: clamp(Math.round(cx - rw / 2), margin, w - rw - margin),
-          y: clamp(Math.round(cy - rh / 2), margin, h - rh - margin),
-          w: rw,
-          h: rh,
-          cx: 0,
-          cy: 0,
-          shape,
+          x: clamp(Math.floor(cx-rx), 1, w-3),
+          y: clamp(Math.floor(cy-ry), 1, h-3),
+          w: Math.max(4, Math.ceil(rx*2)),
+          h: Math.max(4, Math.ceil(ry*2)),
+          cx: Math.floor(cx),
+          cy: Math.floor(cy),
+          shape: forceShape,
         };
-        room.cx = Math.floor(room.x + room.w / 2);
-        room.cy = Math.floor(room.y + room.h / 2);
+        rooms.push(room);
         return room;
       };
 
-      const startRoom = makeRoomFromCenter(6, 6, 7, 7, 'octagon');
-      const stairsRoom = makeRoomFromCenter(w - 7, h - 7, 7, 7, 'octagon');
-      carveBlobRoom(tiles, startRoom, startRoom.shape);
-      rooms.push(startRoom);
-
-      const anchors = [{x:startRoom.cx, y:startRoom.cy}];
-      const midCount = 4 + Math.min(4, Math.floor(floor / 4));
-      const usableW = Math.max(12, w - 12);
-      const usableH = Math.max(12, h - 12);
-      for(let i=0;i<midCount;i++){
-        const t = (i + 1) / (midCount + 1);
-        const baseX = lerp(startRoom.cx, stairsRoom.cx, t);
-        const baseY = lerp(startRoom.cy, stairsRoom.cy, t);
-        const driftX = Math.sin((i + 1) * 1.27 + floor * 0.41) * (usableW * 0.18);
-        const driftY = Math.cos((i + 1) * 1.11 + floor * 0.33) * (usableH * 0.2);
-        anchors.push({
-          x: clamp(Math.round(baseX + driftX + randi(-2, 2)), margin + 2, w - margin - 3),
-          y: clamp(Math.round(baseY + driftY + randi(-2, 2)), margin + 2, h - margin - 3),
-        });
+      const pathPoints = [];
+      const mainCount = 7 + Math.min(6, Math.floor(floor / 2));
+      const laneGap = (w - 10) / (mainCount - 1);
+      let prevY = clamp(h * 0.35 + randi(-3,3), 5, h-6);
+      for(let i=0;i<mainCount;i++){
+        const x = clamp(5 + i * laneGap + randi(-2,2), 4, w-5);
+        const sway = Math.sin(i * 0.9 + floor * 0.21) * (h * 0.12);
+        const y = clamp(prevY + randi(-6,6) + sway * 0.35, 4, h-5);
+        pathPoints.push({x, y, width:randi(2,4)});
+        prevY = y;
       }
-      anchors.push({x:stairsRoom.cx, y:stairsRoom.cy});
+      pathPoints[0].x = 6;
+      pathPoints[0].y = clamp(h * 0.45 + randi(-2,2), 5, h-6);
+      pathPoints[pathPoints.length-1].x = w - 7;
+      pathPoints[pathPoints.length-1].y = clamp(h * 0.55 + randi(-2,2), 5, h-6);
 
-      for(let i=1;i<anchors.length-1;i++){
-        const rw = randi(5, 9);
-        const rh = randi(5, 9);
-        const shapePool = ['ellipse','diamond','octagon'];
-        const room = makeRoomFromCenter(anchors[i].x, anchors[i].y, rw, rh, shapePool[(i + floor) % shapePool.length]);
-        carveBlobRoom(tiles, room, room.shape);
-        rooms.push(room);
-        anchors[i] = {x: room.cx, y: room.cy};
-      }
-
-      const carveRibbon = (a, b, width, wander)=>{
-        carveWidePath(tiles, a.x, a.y, b.x, b.y, width, wander);
-        if (Math.random() < 0.7) {
-          const mx = Math.round((a.x + b.x) * 0.5 + randi(-2, 2));
-          const my = Math.round((a.y + b.y) * 0.5 + randi(-2, 2));
-          carveWidePath(tiles, a.x, a.y, mx, my, Math.max(1, width - 1), wander + 0.04);
-          carveWidePath(tiles, mx, my, b.x, b.y, width, wander + 0.04);
+      const startRoom = addRoomFromCenter(pathPoints[0].x, pathPoints[0].y, 4.5, 4.5, 8, 0.12, 'start-poly');
+      for(let i=1;i<pathPoints.length-1;i++){
+        if(i % 2 === 0 || Math.random() < 0.7){
+          addRoomFromCenter(pathPoints[i].x, pathPoints[i].y, randi(4,7), randi(4,6), randi(5,8), 0.25, 'poly');
         }
-      };
-
-      for(let i=0;i<anchors.length-1;i++){
-        carveRibbon(anchors[i], anchors[i+1], Math.random()<0.35 ? 2 : 1, 0.08 + (i % 2) * 0.04);
       }
+      const stairsRoom = addRoomFromCenter(pathPoints[pathPoints.length-1].x, pathPoints[pathPoints.length-1].y, 4.8, 4.8, 7, 0.14, 'goal-poly');
 
-      const branchCount = 5 + Math.min(4, Math.floor(floor / 5));
-      for(let i=0;i<branchCount;i++){
-        const base = anchors[randi(1, Math.max(1, anchors.length - 2))];
-        const branchLen = randi(4, 10);
-        const dir = shuffle([[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]])[0];
-        const end = {
-          x: clamp(base.x + dir[0] * branchLen + randi(-2, 2), margin + 1, w - margin - 2),
-          y: clamp(base.y + dir[1] * branchLen + randi(-2, 2), margin + 1, h - margin - 2),
+      for(let i=0;i<pathPoints.length-1;i++){
+        const a = pathPoints[i], b = pathPoints[i+1];
+        const mid = {
+          x: (a.x + b.x) * 0.5 + randi(-3,3),
+          y: (a.y + b.y) * 0.5 + randi(-3,3),
         };
-        carveRibbon(base, end, 1, 0.12);
-        const room = makeRoomFromCenter(end.x, end.y, randi(4, 7), randi(4, 7), i % 2 === 0 ? 'diamond' : 'ellipse');
-        carveBlobRoom(tiles, room, room.shape);
-        rooms.splice(rooms.length - 0, 0, room);
-      }
-
-      for(let i=0;i<anchors.length-2;i++){
-        if (Math.random() < 0.45) {
-          carveRibbon(anchors[i], anchors[i+2], 1, 0.14);
+        carveSegment(a.x, a.y, mid.x, mid.y, a.width + Math.random(), Math.max(2, (a.width+b.width)*0.4));
+        carveSegment(mid.x, mid.y, b.x, b.y, Math.max(2, (a.width+b.width)*0.4), b.width + Math.random());
+        if(Math.random() < 0.65){
+          carveDisk(mid.x + randi(-2,2), mid.y + randi(-2,2), 2.4 + Math.random()*1.4);
         }
       }
 
-      carveBlobRoom(tiles, stairsRoom, stairsRoom.shape);
-      rooms.push(stairsRoom);
-      return {tiles, rooms, layout:'maze'};
+      const branchCount = 4 + Math.min(4, Math.floor(floor / 3));
+      for(let i=0;i<branchCount;i++){
+        const anchorIndex = randi(1, pathPoints.length-2);
+        const anchor = pathPoints[anchorIndex];
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        const target = {
+          x: clamp(anchor.x + randi(6, 12) * dir, 4, w-5),
+          y: clamp(anchor.y + randi(-8, 8), 4, h-5),
+        };
+        const bend = {
+          x: clamp((anchor.x + target.x) * 0.5 + randi(-2,2), 4, w-5),
+          y: clamp((anchor.y + target.y) * 0.5 + randi(-4,4), 4, h-5),
+        };
+        carveSegment(anchor.x, anchor.y, bend.x, bend.y, 2 + Math.random()*1.3, 1.8 + Math.random());
+        carveSegment(bend.x, bend.y, target.x, target.y, 1.8 + Math.random(), 2.4 + Math.random()*1.5);
+        addRoomFromCenter(target.x, target.y, randi(3,6), randi(3,5), randi(5,7), 0.3, 'branch-poly');
+        if(Math.random() < 0.45){
+          const spur = { x: clamp(target.x + randi(-6,6), 4, w-5), y: clamp(target.y + randi(-5,5), 4, h-5) };
+          carveSegment(target.x, target.y, spur.x, spur.y, 2, 1.6);
+          carveDisk(spur.x, spur.y, 1.6 + Math.random());
+        }
+      }
+
+      for(let y=1;y<h-1;y++){
+        for(let x=1;x<w-1;x++){
+          if(tiles[y][x]!==1) continue;
+          let open = 0;
+          for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++) if(!(xx===0&&yy===0) && tiles[y+yy]?.[x+xx]===0) open++;
+          if(open >= 6 && Math.random() < 0.18) tiles[y][x] = 0;
+        }
+      }
+
+      const ordered = [];
+      ordered.push(startRoom);
+      const mids = rooms.filter(r => r !== startRoom && r !== stairsRoom).sort((a,b)=>(a.cx+b.cy*0)-(b.cx+a.cy*0) || (a.cx+a.cy)-(b.cx+b.cy));
+      ordered.push(...mids);
+      ordered.push(stairsRoom);
+      return {tiles, rooms: ordered, layout:'vector-maze'};
     }
 
     function createCaveDungeon(w,h,floor){
@@ -1380,12 +1444,8 @@
       const sizeFloor = Math.min(safeFloor, 20);
       const w = 46 + sizeFloor * 2;
       const h = 34 + sizeFloor;
-      // レイアウトを循環させる。maze は自由曲線っぽい通路を持つ変則フロア。
-      let built;
-      if (safeFloor % 5 === 0) built = createMazeDungeon(w, h, safeFloor);
-      else if (safeFloor % 3 === 0) built = createLinearDungeon(w, h, safeFloor);
-      else if (safeFloor % 4 === 0) built = createCaveDungeon(w, h, safeFloor);
-      else built = createRoomyDungeon(w, h, safeFloor);
+      // すべての階層で自由図形寄りの迷路レイアウトを使う。
+      const built = createMazeDungeon(w, h, safeFloor);
       const tiles = built.tiles;
       const rooms = built.rooms;
       const startRoom = rooms[0];
