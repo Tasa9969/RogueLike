@@ -1,4 +1,4 @@
-<!-- ver. 0.5.50 -->
+<!-- ver. 0.5.57 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.50</div>
+  <div id="versionTag">ver. 0.5.57</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2259,15 +2259,15 @@ function clearStairsLandingZone(dungeon){
     }
 
     function canOccupyVectorMaze(d, x, y, r){
-      const inset = Math.max(4, r * 0.55);
+      const inset = Math.max(6, r + 2);
 
       function rotateLocal(dx, dy, rot){
         const c = Math.cos(-rot), s = Math.sin(-rot);
         return {x: dx*c - dy*s, y: dx*s + dy*c};
       }
-      function nodePolygon(node){
-        const hw = Math.max(10, node.width * 0.5 - inset);
-        const hh = Math.max(10, node.height * 0.5 - inset);
+      function nodePolygon(node, expand=1){
+        const hw = Math.max(10, node.width * 0.5 * expand - inset);
+        const hh = Math.max(10, node.height * 0.5 * expand - inset);
         let pts = [];
         if (node.shape === 'triangle') {
           pts = [{x:0,y:-hh},{x:hw*0.92,y:hh*0.82},{x:-hw*0.92,y:hh*0.82}];
@@ -2296,19 +2296,11 @@ function clearStairsLandingZone(dungeon){
         return inside;
       }
 
-      let nearbyNodeCount = 0;
-
       if (d.mazeNodes) {
         for (const node of d.mazeNodes) {
           const local = rotateLocal(x - node.x, y - node.y, node.rot || 0);
           const hw = Math.max(10, node.width * 0.5 - inset);
           const hh = Math.max(10, node.height * 0.5 - inset);
-
-          // Loose proximity count used only for overlap-seam rescue.
-          if (Math.abs(local.x) <= hw + TILE * 0.45 && Math.abs(local.y) <= hh + TILE * 0.45) {
-            nearbyNodeCount++;
-          }
-
           if (node.shape === 'rect') {
             if (Math.abs(local.x) <= hw && Math.abs(local.y) <= hh) return true;
           } else if (node.shape === 'ellipse') {
@@ -2318,36 +2310,12 @@ function clearStairsLandingZone(dungeon){
           }
         }
       }
-
       if (d.mazeSegments) {
         for (const seg of d.mazeSegments) {
           const allowance = Math.max(8, seg.thickness * 0.5 - inset);
           if (pointSegmentDistance(x, y, seg.x1, seg.y1, seg.x2, seg.y2) <= allowance) return true;
         }
       }
-
-      // Very strict seam rescue:
-      // only allow when the CENTER tile itself is carved floor, the point is near
-      // at least two room bodies, and the center tile looks like a corridor/junction
-      // inside carved space. This avoids broad wall penetration.
-      if (nearbyNodeCount >= 2) {
-        const tc = tileCoordsFromWorld(x, y);
-        if (isTileInBounds(d.tiles, tc.tx, tc.ty) && isWalkableTileValue(d.tiles[tc.ty][tc.tx])) {
-          let orthWalk = 0;
-          const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-          for (const [dx, dy] of dirs) {
-            const nx = tc.tx + dx, ny = tc.ty + dy;
-            if (isTileInBounds(d.tiles, nx, ny) && isWalkableTileValue(d.tiles[ny][nx])) orthWalk++;
-          }
-          if (orthWalk >= 2) {
-            const centerX = (tc.tx + 0.5) * TILE;
-            const centerY = (tc.ty + 0.5) * TILE;
-            const maxDelta = TILE * 0.42;
-            if (Math.abs(x - centerX) <= maxDelta && Math.abs(y - centerY) <= maxDelta) return true;
-          }
-        }
-      }
-
       return false;
     }
 
