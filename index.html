@@ -1,4 +1,4 @@
-<!-- ver. 0.5.58 -->
+<!-- ver. 0.5.59 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.58</div>
+  <div id="versionTag">ver. 0.5.59</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1866,11 +1866,17 @@ function clearStairsLandingZone(dungeon){
       const h = Math.round(32 + t * 24 + Math.cos(depth * 0.31) * 3 + waveA * 2);
       const built = createMazeDungeon(w, h, safeFloor);
       const tiles = built.tiles;
-      const rooms = built.rooms;
-      const startRoom = rooms[0];
-      const stairsRoom = rooms[Math.max(1, built.mazeNodes ? Math.min(built.mazeNodes.length - 1, rooms.length - 1) : rooms.length-1)];
+      const rooms = built.rooms && built.rooms.length ? built.rooms : [{cx:Math.floor(w*0.2), cy:Math.floor(h*0.3), w:8, h:6}];
+
+      const startIndex = 0;
+      const stairsIndex = rooms.length >= 2 ? rooms.length - 1 : 0;
+
+      const startRoom = rooms[startIndex];
+      const stairsRoom = rooms[stairsIndex];
+
       const start = {x:(startRoom.cx+0.5)*TILE, y:(startRoom.cy+0.5)*TILE};
       const stairs = {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE};
+
       const dungeon = {
         w,h,tiles,objects:[],rooms,start,stairs,
         theme:themeForFloor(floor),
