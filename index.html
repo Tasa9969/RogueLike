@@ -1,4 +1,4 @@
-<!-- ver. 0.5.59 -->
+<!-- ver. 0.5.60 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.59</div>
+  <div id="versionTag">ver. 0.5.60</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1450,18 +1450,28 @@
         };
       }
       function nodesOverlap(a, b){
-        const ea = nodeExtents(a, 0.35);
-        const eb = nodeExtents(b, 0.35);
+        const ea = nodeExtents(a, 0.10);
+        const eb = nodeExtents(b, 0.10);
+
         const aL = a.tx - ea.ex, aR = a.tx + ea.ex;
         const aT = a.ty - ea.ey, aB = a.ty + ea.ey;
         const bL = b.tx - eb.ex, bR = b.tx + eb.ex;
         const bT = b.ty - eb.ey, bB = b.ty + eb.ey;
+
         const overlapX = Math.min(aR, bR) - Math.max(aL, bL);
         const overlapY = Math.min(aB, bB) - Math.max(aT, bT);
         if (overlapX <= 0 || overlapY <= 0) return false;
+
+        const overlapArea = overlapX * overlapY;
+        const areaA = (aR - aL) * (aB - aT);
+        const areaB = (bR - bL) * (bB - bT);
+        const smallerArea = Math.max(1, Math.min(areaA, areaB));
+
         const centerDist = Math.hypot(a.tx - b.tx, a.ty - b.ty);
-        const reach = Math.max(a.wTiles, a.hTiles, b.wTiles, b.hTiles) * 0.95;
-        return centerDist <= reach * 2.0;
+        const avgReach = (Math.max(a.wTiles, a.hTiles) + Math.max(b.wTiles, b.hTiles)) * 0.5;
+
+        // Only merge when rooms are genuinely overlapping, not merely touching nearby.
+        return overlapArea >= smallerArea * 0.22 && centerDist <= avgReach * 0.95;
       }
       function mergeOverlappingNodes(){
         if (mazeNodes.length <= 1) return;
@@ -1533,8 +1543,8 @@
           const merged = {
             tx: (minX + maxX) * 0.5,
             ty: (minY + maxY) * 0.5,
-            wTiles: Math.max(4, (maxX - minX) * 1.04),
-            hTiles: Math.max(4, (maxY - minY) * 1.04),
+            wTiles: Math.max(4, (maxX - minX) * 1.00),
+            hTiles: Math.max(4, (maxY - minY) * 1.00),
             shape,
             rot: shape === 'rect' ? rotSum / group.length : 0,
             sourceIndex: minIndex,
