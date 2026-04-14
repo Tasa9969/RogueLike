@@ -1,4 +1,4 @@
-<!-- ver. 0.5.60 -->
+<!-- ver. 0.5.50 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.60</div>
+  <div id="versionTag">ver. 0.5.50</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1270,30 +1270,27 @@
         if (roll < 0.88) return 'octagon';
         return isHub || Math.random() < 0.48 ? 'star8' : 'octagon';
       }
-      function makeNode(tx, ty, isHub=false){
-        const base = isHub ? (5.5 + progress * 3.2 + roomWave * 1.8 + avant * 2.2) : (4.6 + progress * 2.5 + densityWave * 1.2 + avant * 1.4);
-        const size = base + rand(-1.4, 2.1 + avant * 1.6);
-        const aspectBase = rand(0.62, 1.78);
-        const aspectWeird = rand(0.38, 2.45);
-        const aspect = Math.random() < (0.22 + avant * 0.58) ? aspectWeird : aspectBase;
-        const shape = roomShapeForDepth(isHub);
-        const node = {
-          tx: clampTile(tx, margin, w - margin - 1),
-          ty: clampTile(ty, margin, h - margin - 1),
-          shape,
-          rot: rand(-Math.PI, Math.PI),
-          wTiles: Math.max(4, size * aspect),
-          hTiles: Math.max(4, size / aspect),
+      function nodeLooseExtents(node, pad=0){
+        const rx = Math.max(1.5, node.wTiles * 0.56 + pad);
+        const ry = Math.max(1.5, node.hTiles * 0.56 + pad);
+        const c = Math.abs(Math.cos(node.rot || 0));
+        const s = Math.abs(Math.sin(node.rot || 0));
+        return {
+          ex: c * rx + s * ry,
+          ey: s * rx + c * ry,
         };
-        if (shape === 'rect') node.rot = rand(-(0.18 + avant * 0.95), (0.18 + avant * 0.95));
-        if (shape === 'ellipse') node.rot = rand(-Math.PI, Math.PI);
-        if (shape === 'triangle' || shape === 'pentagon' || shape === 'hexagon' || shape === 'octagon' || shape === 'star8') {
-          node.rot = rand(-Math.PI, Math.PI);
+      }
+      function overlapsExistingNodes(node, extraPad=0.9){
+        const a = nodeLooseExtents(node, extraPad);
+        for (const other of mazeNodes) {
+          const b = nodeLooseExtents(other, extraPad);
+          const dx = Math.abs(node.tx - other.tx);
+          const dy = Math.abs(node.ty - other.ty);
+          if (dx < (a.ex + b.ex) && dy < (a.ey + b.ey)) return true;
         }
-        if (depth >= 60 && Math.random() < 0.18 + avant * 0.28) {
-          node.wTiles *= rand(0.8, 1.45 + avant * 0.9);
-          node.hTiles *= rand(0.8, 1.45 + avant * 0.9);
-        }
+        return false;
+      }
+      function finalizeNode(node){
         const center = tileCenter(node.tx, node.ty);
         node.x = center.x;
         node.y = center.y;
@@ -1311,6 +1308,64 @@
         mazeNodes.push(node);
         carveNodeToTiles(node);
         return node;
+      }
+      function makeNode(tx, ty, isHub=false){
+        const base = isHub ? (5.5 + progress * 3.2 + roomWave * 1.8 + avant * 2.2) : (4.6 + progress * 2.5 + densityWave * 1.2 + avant * 1.4);
+        const size = base + rand(-1.4, 2.1 + avant * 1.6);
+        const aspectBase = rand(0.62, 1.78);
+        const aspectWeird = rand(0.38, 2.45);
+        const aspect = Math.random() < (0.22 + avant * 0.58) ? aspectWeird : aspectBase;
+        const shape = roomShapeForDepth(isHub);
+
+        function buildCandidate(cx, cy, scale=1){
+          const node = {
+            tx: clampTile(cx, margin, w - margin - 1),
+            ty: clampTile(cy, margin, h - margin - 1),
+            shape,
+            rot: rand(-Math.PI, Math.PI),
+            wTiles: Math.max(4, size * aspect * scale),
+            hTiles: Math.max(4, size / aspect * scale),
+          };
+          if (shape === 'rect') node.rot = rand(-(0.18 + avant * 0.95), (0.18 + avant * 0.95));
+          if (shape === 'ellipse') node.rot = rand(-Math.PI, Math.PI);
+          if (shape === 'triangle' || shape === 'pentagon' || shape === 'hexagon' || shape === 'octagon' || shape === 'star8') {
+            node.rot = rand(-Math.PI, Math.PI);
+          }
+          if (depth >= 60 && Math.random() < 0.18 + avant * 0.28) {
+            node.wTiles *= rand(0.8, 1.45 + avant * 0.9);
+            node.hTiles *= rand(0.8, 1.45 + avant * 0.9);
+          }
+          return node;
+        }
+
+        let candidate = buildCandidate(tx, ty, 1);
+        if (!overlapsExistingNodes(candidate, isHub ? 0.7 : 0.9)) return finalizeNode(candidate);
+
+        const tries = 36;
+        const baseRadius = isHub ? 5 : 7;
+        for (let i = 0; i < tries; i++) {
+          const ring = 1 + Math.floor(i / 8);
+          const angle = rand(-Math.PI, Math.PI);
+          const radius = baseRadius * ring;
+          const nx = tx + Math.cos(angle) * radius + rand(-1.5, 1.5);
+          const ny = ty + Math.sin(angle) * radius + rand(-1.5, 1.5);
+          candidate = buildCandidate(nx, ny, 1);
+          if (!overlapsExistingNodes(candidate, isHub ? 0.7 : 0.9)) return finalizeNode(candidate);
+        }
+
+        for (const scale of [0.9, 0.82, 0.74]) {
+          candidate = buildCandidate(tx, ty, scale);
+          if (!overlapsExistingNodes(candidate, 0.75)) return finalizeNode(candidate);
+
+          for (let i = 0; i < 20; i++) {
+            const nx = tx + rand(-10, 10);
+            const ny = ty + rand(-10, 10);
+            candidate = buildCandidate(nx, ny, scale);
+            if (!overlapsExistingNodes(candidate, 0.75)) return finalizeNode(candidate);
+          }
+        }
+
+        return finalizeNode(buildCandidate(tx, ty, 0.72));
       }
 
       const mode = layoutMode();
@@ -1437,168 +1492,6 @@
         const b = makeNode(a.tx + Math.cos(dir) * len, a.ty + Math.sin(dir) * len, false);
         addSegment(a, b, 1 + Math.floor(Math.random() * 3));
       }
-
-
-      function nodeExtents(node, pad=0){
-        const rx = Math.max(1.5, node.wTiles * 0.54 + pad);
-        const ry = Math.max(1.5, node.hTiles * 0.54 + pad);
-        const c = Math.abs(Math.cos(node.rot || 0));
-        const s = Math.abs(Math.sin(node.rot || 0));
-        return {
-          ex: c * rx + s * ry,
-          ey: s * rx + c * ry,
-        };
-      }
-      function nodesOverlap(a, b){
-        const ea = nodeExtents(a, 0.10);
-        const eb = nodeExtents(b, 0.10);
-
-        const aL = a.tx - ea.ex, aR = a.tx + ea.ex;
-        const aT = a.ty - ea.ey, aB = a.ty + ea.ey;
-        const bL = b.tx - eb.ex, bR = b.tx + eb.ex;
-        const bT = b.ty - eb.ey, bB = b.ty + eb.ey;
-
-        const overlapX = Math.min(aR, bR) - Math.max(aL, bL);
-        const overlapY = Math.min(aB, bB) - Math.max(aT, bT);
-        if (overlapX <= 0 || overlapY <= 0) return false;
-
-        const overlapArea = overlapX * overlapY;
-        const areaA = (aR - aL) * (aB - aT);
-        const areaB = (bR - bL) * (bB - bT);
-        const smallerArea = Math.max(1, Math.min(areaA, areaB));
-
-        const centerDist = Math.hypot(a.tx - b.tx, a.ty - b.ty);
-        const avgReach = (Math.max(a.wTiles, a.hTiles) + Math.max(b.wTiles, b.hTiles)) * 0.5;
-
-        // Only merge when rooms are genuinely overlapping, not merely touching nearby.
-        return overlapArea >= smallerArea * 0.22 && centerDist <= avgReach * 0.95;
-      }
-      function mergeOverlappingNodes(){
-        if (mazeNodes.length <= 1) return;
-
-        const parent = mazeNodes.map((_, i) => i);
-        const find = (i) => {
-          while (parent[i] !== i) {
-            parent[i] = parent[parent[i]];
-            i = parent[i];
-          }
-          return i;
-        };
-        const unite = (a, b) => {
-          const ra = find(a), rb = find(b);
-          if (ra !== rb) parent[rb] = ra;
-        };
-
-        for (let i = 0; i < mazeNodes.length; i++) {
-          for (let j = i + 1; j < mazeNodes.length; j++) {
-            if (nodesOverlap(mazeNodes[i], mazeNodes[j])) unite(i, j);
-          }
-        }
-
-        const groups = new Map();
-        for (let i = 0; i < mazeNodes.length; i++) {
-          const r = find(i);
-          if (!groups.has(r)) groups.set(r, []);
-          groups.get(r).push(mazeNodes[i]);
-        }
-        if (groups.size === mazeNodes.length) return;
-
-        const oldNodes = mazeNodes.slice();
-        const oldToMerged = new Map();
-        const mergedNodes = [];
-        const shapeRank = { rect: 6, ellipse: 5, octagon: 4, hexagon: 4, pentagon: 4, triangle: 3, star8: 2 };
-
-        for (const group of groups.values()) {
-          if (group.length === 1) {
-            const node = group[0];
-            mergedNodes.push(node);
-            oldToMerged.set(node, node);
-            continue;
-          }
-
-          const xs = [];
-          const ys = [];
-          let shape = 'rect';
-          let bestRank = -1;
-          let rotSum = 0;
-          let minIndex = Infinity;
-
-          for (const node of group) {
-            const e = nodeExtents(node, 0.15);
-            xs.push(node.tx - e.ex, node.tx + e.ex);
-            ys.push(node.ty - e.ey, node.ty + e.ey);
-            rotSum += (node.rot || 0);
-            if ((node.sourceIndex ?? 0) < minIndex) minIndex = (node.sourceIndex ?? 0);
-            const rank = shapeRank[node.shape] ?? 0;
-            if (rank > bestRank) {
-              bestRank = rank;
-              shape = node.shape === 'star8' ? 'octagon' : node.shape;
-            }
-          }
-
-          const minX = Math.max(margin, Math.min(...xs));
-          const maxX = Math.min(w - margin - 1, Math.max(...xs));
-          const minY = Math.max(margin, Math.min(...ys));
-          const maxY = Math.min(h - margin - 1, Math.max(...ys));
-          const merged = {
-            tx: (minX + maxX) * 0.5,
-            ty: (minY + maxY) * 0.5,
-            wTiles: Math.max(4, (maxX - minX) * 1.00),
-            hTiles: Math.max(4, (maxY - minY) * 1.00),
-            shape,
-            rot: shape === 'rect' ? rotSum / group.length : 0,
-            sourceIndex: minIndex,
-          };
-          const center = tileCenter(merged.tx, merged.ty);
-          merged.x = center.x;
-          merged.y = center.y;
-          merged.width = merged.wTiles * TILE;
-          merged.height = merged.hTiles * TILE;
-
-          mergedNodes.push(merged);
-          for (const node of group) oldToMerged.set(node, merged);
-        }
-
-        mergedNodes.sort((a, b) => (a.sourceIndex ?? 0) - (b.sourceIndex ?? 0));
-
-        for (let i = 0; i < mazeSegments.length; i++) {
-          const seg = mazeSegments[i];
-          let aNode = null, bNode = null;
-          for (const oldNode of oldNodes) {
-            if (!aNode && Math.hypot(seg.x1 - oldNode.x, seg.y1 - oldNode.y) < 1) aNode = oldNode;
-            if (!bNode && Math.hypot(seg.x2 - oldNode.x, seg.y2 - oldNode.y) < 1) bNode = oldNode;
-            if (aNode && bNode) break;
-          }
-          const ma = aNode ? oldToMerged.get(aNode) : null;
-          const mb = bNode ? oldToMerged.get(bNode) : null;
-          if (ma) { seg.x1 = ma.x; seg.y1 = ma.y; }
-          if (mb) { seg.x2 = mb.x; seg.y2 = mb.y; }
-        }
-
-        mazeNodes.length = 0;
-        mazeNodes.push(...mergedNodes);
-
-        rooms.length = 0;
-        for (const node of mazeNodes) {
-          rooms.push({
-            cx: node.tx,
-            cy: node.ty,
-            x: Math.round(node.tx - node.wTiles * 0.5),
-            y: Math.round(node.ty - node.hTiles * 0.5),
-            w: Math.max(4, Math.round(node.wTiles)),
-            h: Math.max(4, Math.round(node.hTiles))
-          });
-        }
-
-        for (let y = 0; y < h; y++) tiles[y].fill(1);
-        for (const node of mazeNodes) carveNodeToTiles(node);
-        for (const seg of mazeSegments) carveSegment(seg);
-      }
-
-      for (let i = 0; i < mazeNodes.length; i++) {
-        mazeNodes[i].sourceIndex = i;
-      }
-      mergeOverlappingNodes();
 
       return {tiles, rooms, mazeNodes, mazeSegments, layout:mode, vectorMaze:true};
     }
@@ -1876,17 +1769,11 @@ function clearStairsLandingZone(dungeon){
       const h = Math.round(32 + t * 24 + Math.cos(depth * 0.31) * 3 + waveA * 2);
       const built = createMazeDungeon(w, h, safeFloor);
       const tiles = built.tiles;
-      const rooms = built.rooms && built.rooms.length ? built.rooms : [{cx:Math.floor(w*0.2), cy:Math.floor(h*0.3), w:8, h:6}];
-
-      const startIndex = 0;
-      const stairsIndex = rooms.length >= 2 ? rooms.length - 1 : 0;
-
-      const startRoom = rooms[startIndex];
-      const stairsRoom = rooms[stairsIndex];
-
+      const rooms = built.rooms;
+      const startRoom = rooms[0];
+      const stairsRoom = rooms[Math.max(1, built.mazeNodes ? Math.min(built.mazeNodes.length - 1, rooms.length - 1) : rooms.length-1)];
       const start = {x:(startRoom.cx+0.5)*TILE, y:(startRoom.cy+0.5)*TILE};
       const stairs = {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE};
-
       const dungeon = {
         w,h,tiles,objects:[],rooms,start,stairs,
         theme:themeForFloor(floor),
