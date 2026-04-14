@@ -1,4 +1,4 @@
-<!-- ver. 0.5.52 -->
+<!-- ver. 0.5.53 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.52</div>
+  <div id="versionTag">ver. 0.5.53</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2327,14 +2327,16 @@ function clearStairsLandingZone(dungeon){
         const dy = seg.y2 - seg.y1;
         const len2 = dx * dx + dy * dy;
         if (len2 <= 0.0001) continue;
+
         let t = ((x - seg.x1) * dx + (y - seg.y1) * dy) / len2;
         t = Math.max(0, Math.min(1, t));
         const qx = seg.x1 + dx * t;
         const qy = seg.y1 + dy * t;
-        const dist = Math.hypot(x - qx, y - qy);
+
         const segLen = Math.sqrt(len2);
         const tx = dx / segLen;
         const ty = dy / segLen;
+
         let nx = x - qx;
         let ny = y - qy;
         const nLen = Math.hypot(nx, ny);
@@ -2345,89 +2347,59 @@ function clearStairsLandingZone(dungeon){
           nx = -ty;
           ny = tx;
         }
+
+        const dist = Math.hypot(x - qx, y - qy);
         if (!best || dist < best.dist) {
-          best = {dist, qx, qy, tx, ty, nx, ny, thickness: seg.thickness};
+          best = { dist, qx, qy, tx, ty, nx, ny, thickness: seg.thickness };
         }
       }
       return best;
     }
 
-    function followVectorWall(body, desiredDx, desiredDy, dt){
+    function tryVectorWallSlideStep(body, stepDx, stepDy){
       const d = state.dungeon;
-      if (!d.vectorMaze || !d.mazeSegments || !d.mazeSegments.length) return false;
-      const desiredLen = Math.hypot(desiredDx, desiredDy);
-      if (desiredLen < 0.001) return false;
+      const desiredLen = Math.hypot(stepDx, stepDy);
+      if (desiredLen < 0.0001) return false;
 
       const probes = [
-        nearestVectorWallInfo(d, body.x + desiredDx, body.y + desiredDy),
-        nearestVectorWallInfo(d, body.x + desiredDx * 0.5, body.y + desiredDy * 0.5),
+        nearestVectorWallInfo(d, body.x + stepDx, body.y + stepDy),
+        nearestVectorWallInfo(d, body.x + stepDx * 0.5, body.y + stepDy * 0.5),
         nearestVectorWallInfo(d, body.x, body.y)
       ].filter(Boolean);
 
       for (const hit of probes) {
-        const nearBand = hit.thickness * 0.5 + body.r + 18;
+        const nearBand = hit.thickness * 0.5 + body.r + 20;
         if (hit.dist > nearBand) continue;
 
-        let tangentSign = Math.sign(desiredDx * hit.tx + desiredDy * hit.ty);
-        if (!tangentSign) tangentSign = 1;
-        const tangentX = hit.tx * tangentSign;
-        const tangentY = hit.ty * tangentSign;
+        const forwardDot = stepDx * hit.tx + stepDy * hit.ty;
+        const tangentCandidates = [];
 
-        const push = Math.max(0, (hit.thickness * 0.5 + body.r + 3) - hit.dist);
-        const biasX = hit.nx * push;
-        const biasY = hit.ny * push;
-
-        for (const scale of [1.00, 0.85, 0.70, 0.55, 0.40, 0.28]) {
-          const step = desiredLen * scale;
-          const nx = body.x + tangentX * step + biasX;
-          const ny = body.y + tangentY * step + biasY;
-          if (canMoveCircle(nx, ny, body.r)) {
-            body.x = nx;
-            body.y = ny;
-            const speed = step / Math.max(dt, 0.0001);
-            body.vx = tangentX * speed;
-            body.vy = tangentY * speed;
-            return true;
-          }
+        if (Math.abs(forwardDot) > 0.01) {
+          const s = Math.sign(forwardDot);
+          tangentCandidates.push({ x: hit.tx * s, y: hit.ty * s });
+        } else {
+          tangentCandidates.push({ x: hit.tx, y: hit.ty });
+          tangentCandidates.push({ x: -hit.tx, y: -hit.ty });
         }
 
-        for (let i = 0; i < 10; i++) {
-          const step = desiredLen * (0.22 + i * 0.08);
-          const nx = body.x + tangentX * step + biasX;
-          const ny = body.y + tangentY * step + biasY;
-          if (canMoveCircle(nx, ny, body.r)) {
-            body.x = nx;
-            body.y = ny;
-            const speed = step / Math.max(dt, 0.0001);
-            body.vx = tangentX * speed;
-            body.vy = tangentY * speed;
-            return true;
+        const push = Math.max(0, (hit.thickness * 0.5 + body.r + 3) - hit.dist);
+        const pushX = hit.nx * push;
+        const pushY = hit.ny * push;
+
+        for (const tan of tangentCandidates) {
+          for (const scale of [1.00, 0.85, 0.70, 0.55, 0.40, 0.28]) {
+            const step = desiredLen * scale;
+            const nx = body.x + tan.x * step + pushX;
+            const ny = body.y + tan.y * step + pushY;
+            if (canMoveCircle(nx, ny, body.r)) {
+              body.x = nx;
+              body.y = ny;
+              return true;
+            }
           }
         }
       }
       return false;
-    }
-
-    function canMoveCircle(x,y,r){
-      const d = state.dungeon;
-      if (d.vectorMaze) {
-        if (!canOccupyVectorMaze(d, x, y, r)) return false;
-        for (const o of d.objects) {
-          if (!o.dead && circleRect(x,y,r,o.x,o.y,o.w,o.h)) return false;
-        }
-        return true;
-      }
-      const minX = Math.floor((x-r)/TILE)-1, maxX = Math.floor((x+r)/TILE)+1;
-      const minY = Math.floor((y-r)/TILE)-1, maxY = Math.floor((y+r)/TILE)+1;
-      for(let ty=minY;ty<=maxY;ty++) for(let tx=minX;tx<=maxX;tx++){
-        if (!d.tiles[ty] || d.tiles[ty][tx]===undefined || d.tiles[ty][tx]===1 || (d.tiles[ty][tx]===2)) {
-          if (circleRect(x,y,r,tx*TILE,ty*TILE,TILE,TILE)) return false;
-        }
-      }
-      for (const o of d.objects) {
-        if (!o.dead && circleRect(x,y,r,o.x,o.y,o.w,o.h)) return false;
-      }
-      return true;
     }
 
     function moveBody(body, dt) {
@@ -2438,59 +2410,63 @@ function clearStairsLandingZone(dungeon){
       }
 
       const d = state.dungeon;
-      const desiredDx = body.vx * dt;
-      const desiredDy = body.vy * dt;
-      const fullX = body.x + desiredDx;
-      const fullY = body.y + desiredDy;
+      const totalDx = body.vx * dt;
+      const totalDy = body.vy * dt;
 
-      if (canMoveCircle(fullX, fullY, body.r)) {
-        body.x = fullX;
-        body.y = fullY;
+      if (!d.vectorMaze) {
+        const nx = body.x + totalDx;
+        if (canMoveCircle(nx, body.y, body.r)) body.x = nx; else body.vx *= -0.18;
+        const ny = body.y + totalDy;
+        if (canMoveCircle(body.x, ny, body.r)) body.y = ny; else body.vy *= -0.18;
         return;
       }
 
-      if (d.vectorMaze && followVectorWall(body, desiredDx, desiredDy, dt)) {
-        return;
+      const travel = Math.hypot(totalDx, totalDy);
+      const steps = Math.max(1, Math.ceil(travel / 6));
+      const stepDx = totalDx / steps;
+      const stepDy = totalDy / steps;
+      let movedAny = false;
+
+      for (let i = 0; i < steps; i++) {
+        const nx = body.x + stepDx;
+        const ny = body.y + stepDy;
+
+        if (canMoveCircle(nx, ny, body.r)) {
+          body.x = nx;
+          body.y = ny;
+          movedAny = true;
+          continue;
+        }
+
+        if (tryVectorWallSlideStep(body, stepDx, stepDy)) {
+          movedAny = true;
+          continue;
+        }
+
+        const xOnly = body.x + stepDx;
+        if (canMoveCircle(xOnly, body.y, body.r)) {
+          body.x = xOnly;
+          movedAny = true;
+          continue;
+        }
+        const yOnly = body.y + stepDy;
+        if (canMoveCircle(body.x, yOnly, body.r)) {
+          body.y = yOnly;
+          movedAny = true;
+          continue;
+        }
+
+        body.vx *= 0.82;
+        body.vy *= 0.82;
+        break;
       }
 
-      const nx = body.x + desiredDx;
-      if (canMoveCircle(nx, body.y, body.r)) body.x = nx; else body.vx *= -0.18;
-      const ny = body.y + desiredDy;
-      if (canMoveCircle(body.x, ny, body.r)) body.y = ny; else body.vy *= -0.18;
-
-      if (d.vectorMaze) {
-        const remainDx = body.vx * dt * 0.6;
-        const remainDy = body.vy * dt * 0.6;
-        followVectorWall(body, remainDx, remainDy, dt);
+      if (!movedAny) {
+        body.vx *= 0.9;
+        body.vy *= 0.9;
       }
     }
 
-      const d = state.dungeon;
-      const fullX = body.x + body.vx * dt;
-      const fullY = body.y + body.vy * dt;
-
-      if (canMoveCircle(fullX, fullY, body.r)) {
-        body.x = fullX;
-        body.y = fullY;
-        return;
-      }
-
-      if (d.vectorMaze && trySlideAlongVectorWall(body, dt)) {
-        return;
-      }
-
-      const nx = body.x + body.vx * dt;
-      if (canMoveCircle(nx, body.y, body.r)) body.x = nx; else body.vx *= -0.18;
-      const ny = body.y + body.vy * dt;
-      if (canMoveCircle(body.x, ny, body.r)) body.y = ny; else body.vy *= -0.18;
-
-      if (d.vectorMaze && (!canMoveCircle(body.x, body.y, body.r))) {
-        trySlideAlongVectorWall(body, dt);
-      }
-    }
-
-    // 指定位置が壁や障害物に埋まる場合、近場の通行可能位置を探して返す。
-    // 敵同士の押し合いで壁内に押し込まれた時の復帰用。
     function findNearestFreeCirclePosition(x, y, r, maxRadius = TILE * 2.5, step = 6) {
       if (canMoveCircle(x, y, r)) return {x, y};
       for (let radius = step; radius <= maxRadius; radius += step) {
