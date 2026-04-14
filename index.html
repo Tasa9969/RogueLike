@@ -1,4 +1,4 @@
-<!-- ver. 0.5.40 -->
+<!-- ver. 0.5.42 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.40</div>
+  <div id="versionTag">ver. 0.5.42</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1090,8 +1090,8 @@
     function createMazeDungeon(w,h,floor){
       const tiles = Array.from({length:h},()=>Array(w).fill(1));
       const rooms = [];
+      const mazeSegments = [];
 
-      const inBounds = (x,y)=> y>=1 && y<h-1 && x>=1 && x<w-1;
       const carveDisk = (cx, cy, radius)=>{
         const r = Math.max(1.2, radius);
         for(let y=Math.floor(cy-r)-1;y<=Math.ceil(cy+r)+1;y++){
@@ -1104,8 +1104,8 @@
           }
         }
       };
-      const carveSegment = (ax, ay, bx, by, radiusA=2, radiusB=2)=>{
-        const steps = Math.max(2, Math.ceil(dist({x:ax,y:ay},{x:bx,y:by}) * 1.5));
+      const carveSegmentRaster = (ax, ay, bx, by, radiusA=2, radiusB=2)=>{
+        const steps = Math.max(2, Math.ceil(dist({x:ax,y:ay},{x:bx,y:by}) * 1.6));
         for(let i=0;i<=steps;i++){
           const t = i / steps;
           const x = lerp(ax, bx, t);
@@ -1113,6 +1113,11 @@
           const width = lerp(radiusA, radiusB, t);
           carveDisk(x, y, width);
         }
+      };
+      const addMazeSegment = (ax, ay, bx, by, thickness)=>{
+        const t = Math.max(2.2, thickness);
+        mazeSegments.push({x1:ax, y1:ay, x2:bx, y2:by, thickness:t});
+        carveSegmentRaster(ax, ay, bx, by, t * 0.5, t * 0.5);
       };
       const pointInPoly = (px, py, poly)=>{
         let inside = false;
@@ -1160,69 +1165,79 @@
           cx: Math.floor(cx),
           cy: Math.floor(cy),
           shape: forceShape,
+          polygon: pts,
         };
         rooms.push(room);
         return room;
+      };
+      const addPolyline = (points, thickness)=>{
+        for(let i=0;i<points.length-1;i++) addMazeSegment(points[i].x, points[i].y, points[i+1].x, points[i+1].y, thickness);
       };
 
       const pathPoints = [];
       const mainCount = 7 + Math.min(6, Math.floor(floor / 2));
       const laneGap = (w - 10) / (mainCount - 1);
-      let prevY = clamp(h * 0.35 + randi(-3,3), 5, h-6);
+      let prevY = clamp(h * 0.42 + randi(-4,4), 5, h-6);
       for(let i=0;i<mainCount;i++){
         const x = clamp(5 + i * laneGap + randi(-2,2), 4, w-5);
-        const sway = Math.sin(i * 0.9 + floor * 0.21) * (h * 0.12);
-        const y = clamp(prevY + randi(-6,6) + sway * 0.35, 4, h-5);
-        pathPoints.push({x, y, width:randi(2,4)});
+        const sway = Math.sin(i * 0.85 + floor * 0.19) * (h * 0.15);
+        const y = clamp(prevY + randi(-6,6) + sway * 0.3, 4, h-5);
+        pathPoints.push({x, y});
         prevY = y;
       }
       pathPoints[0].x = 6;
-      pathPoints[0].y = clamp(h * 0.45 + randi(-2,2), 5, h-6);
+      pathPoints[0].y = clamp(h * 0.5 + randi(-2,2), 5, h-6);
       pathPoints[pathPoints.length-1].x = w - 7;
-      pathPoints[pathPoints.length-1].y = clamp(h * 0.55 + randi(-2,2), 5, h-6);
+      pathPoints[pathPoints.length-1].y = clamp(h * 0.5 + randi(-2,2), 5, h-6);
 
-      const startRoom = addRoomFromCenter(pathPoints[0].x, pathPoints[0].y, 4.5, 4.5, 8, 0.12, 'start-poly');
+      const startRoom = addRoomFromCenter(pathPoints[0].x, pathPoints[0].y, 4.8, 4.8, 8, 0.12, 'start-poly');
       for(let i=1;i<pathPoints.length-1;i++){
-        if(i % 2 === 0 || Math.random() < 0.7){
+        if(i % 2 === 0 || Math.random() < 0.72){
           addRoomFromCenter(pathPoints[i].x, pathPoints[i].y, randi(4,7), randi(4,6), randi(5,8), 0.25, 'poly');
         }
       }
-      const stairsRoom = addRoomFromCenter(pathPoints[pathPoints.length-1].x, pathPoints[pathPoints.length-1].y, 4.8, 4.8, 7, 0.14, 'goal-poly');
+      const stairsRoom = addRoomFromCenter(pathPoints[pathPoints.length-1].x, pathPoints[pathPoints.length-1].y, 5.0, 5.0, 7, 0.14, 'goal-poly');
 
       for(let i=0;i<pathPoints.length-1;i++){
         const a = pathPoints[i], b = pathPoints[i+1];
-        const mid = {
-          x: (a.x + b.x) * 0.5 + randi(-3,3),
-          y: (a.y + b.y) * 0.5 + randi(-3,3),
-        };
-        carveSegment(a.x, a.y, mid.x, mid.y, a.width + Math.random(), Math.max(2, (a.width+b.width)*0.4));
-        carveSegment(mid.x, mid.y, b.x, b.y, Math.max(2, (a.width+b.width)*0.4), b.width + Math.random());
-        if(Math.random() < 0.65){
-          carveDisk(mid.x + randi(-2,2), mid.y + randi(-2,2), 2.4 + Math.random()*1.4);
+        const bendCount = 1 + (Math.random() < 0.55 ? 1 : 0);
+        const polyline = [a];
+        for(let k=0;k<bendCount;k++){
+          const t = (k + 1) / (bendCount + 1);
+          polyline.push({
+            x: clamp(lerp(a.x, b.x, t) + randi(-4,4), 4, w-5),
+            y: clamp(lerp(a.y, b.y, t) + randi(-4,4), 4, h-5),
+          });
         }
+        polyline.push(b);
+        const thickness = 4.8 + Math.random() * 2.4;
+        addPolyline(polyline, thickness);
+        for(const p of polyline) carveDisk(p.x, p.y, thickness * 0.38);
       }
 
-      const branchCount = 4 + Math.min(4, Math.floor(floor / 3));
+      const branchCount = 5 + Math.min(5, Math.floor(floor / 3));
       for(let i=0;i<branchCount;i++){
         const anchorIndex = randi(1, pathPoints.length-2);
         const anchor = pathPoints[anchorIndex];
         const dir = Math.random() < 0.5 ? -1 : 1;
         const target = {
-          x: clamp(anchor.x + randi(6, 12) * dir, 4, w-5),
+          x: clamp(anchor.x + randi(7, 14) * dir, 4, w-5),
           y: clamp(anchor.y + randi(-8, 8), 4, h-5),
         };
-        const bend = {
-          x: clamp((anchor.x + target.x) * 0.5 + randi(-2,2), 4, w-5),
-          y: clamp((anchor.y + target.y) * 0.5 + randi(-4,4), 4, h-5),
-        };
-        carveSegment(anchor.x, anchor.y, bend.x, bend.y, 2 + Math.random()*1.3, 1.8 + Math.random());
-        carveSegment(bend.x, bend.y, target.x, target.y, 1.8 + Math.random(), 2.4 + Math.random()*1.5);
-        addRoomFromCenter(target.x, target.y, randi(3,6), randi(3,5), randi(5,7), 0.3, 'branch-poly');
-        if(Math.random() < 0.45){
-          const spur = { x: clamp(target.x + randi(-6,6), 4, w-5), y: clamp(target.y + randi(-5,5), 4, h-5) };
-          carveSegment(target.x, target.y, spur.x, spur.y, 2, 1.6);
-          carveDisk(spur.x, spur.y, 1.6 + Math.random());
+        const room = addRoomFromCenter(target.x, target.y, randi(3,6), randi(3,5), randi(5,7), 0.3, 'branch-poly');
+        const polyline = [anchor];
+        const bends = 1 + (Math.random() < 0.4 ? 1 : 0);
+        for(let k=0;k<bends;k++){
+          const t = (k + 1) / (bends + 1);
+          polyline.push({
+            x: clamp(lerp(anchor.x, target.x, t) + randi(-3,3), 4, w-5),
+            y: clamp(lerp(anchor.y, target.y, t) + randi(-4,4), 4, h-5),
+          });
         }
+        polyline.push(target);
+        const thickness = 3.6 + Math.random() * 1.8;
+        addPolyline(polyline, thickness);
+        carveDisk(room.cx, room.cy, thickness * 0.45 + 1.2);
       }
 
       for(let y=1;y<h-1;y++){
@@ -1230,16 +1245,21 @@
           if(tiles[y][x]!==1) continue;
           let open = 0;
           for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++) if(!(xx===0&&yy===0) && tiles[y+yy]?.[x+xx]===0) open++;
-          if(open >= 6 && Math.random() < 0.18) tiles[y][x] = 0;
+          if(open >= 6 && Math.random() < 0.12) tiles[y][x] = 0;
         }
       }
 
       const ordered = [];
       ordered.push(startRoom);
-      const mids = rooms.filter(r => r !== startRoom && r !== stairsRoom).sort((a,b)=>(a.cx+b.cy*0)-(b.cx+a.cy*0) || (a.cx+a.cy)-(b.cx+b.cy));
+      const mids = rooms.filter(r => r !== startRoom && r !== stairsRoom).sort((a,b)=>(a.cx - b.cx) || (a.cy - b.cy));
       ordered.push(...mids);
       ordered.push(stairsRoom);
-      return {tiles, rooms: ordered, layout:'vector-maze'};
+      return {
+        tiles,
+        rooms: ordered,
+        layout:'segment-maze',
+        mazeSegments,
+      };
     }
 
     function createCaveDungeon(w,h,floor){
@@ -1419,6 +1439,142 @@
       dungeon.reachable = floodReachableTiles(dungeon.tiles, stairsTile.tx, stairsTile.ty);
     }
 
+    function isRenderableFloorTile(v){
+      return v === 0 || v === 3;
+    }
+
+    function buildContourLoopsFromTiles(tiles, matcher){
+      const edges = [];
+      const h = tiles.length;
+      const w = tiles[0]?.length || 0;
+      const isOn = (x,y)=> y>=0 && y<h && x>=0 && x<w && matcher(tiles[y][x]);
+      for(let y=0;y<h;y++) for(let x=0;x<w;x++) {
+        if (!isOn(x,y)) continue;
+        if (!isOn(x, y-1)) edges.push([[x, y], [x+1, y]]);
+        if (!isOn(x+1, y)) edges.push([[x+1, y], [x+1, y+1]]);
+        if (!isOn(x, y+1)) edges.push([[x+1, y+1], [x, y+1]]);
+        if (!isOn(x-1, y)) edges.push([[x, y+1], [x, y]]);
+      }
+      const nextMap = new Map();
+      for (const [a,b] of edges) {
+        const key = `${a[0]},${a[1]}`;
+        if (!nextMap.has(key)) nextMap.set(key, []);
+        nextMap.get(key).push(b);
+      }
+      const used = new Set();
+      const loops = [];
+      for (const [a,b] of edges) {
+        const edgeKey = `${a[0]},${a[1]}->${b[0]},${b[1]}`;
+        if (used.has(edgeKey)) continue;
+        const loop = [];
+        let start = a;
+        let cur = a;
+        let nxt = b;
+        let guard = 0;
+        while (guard++ < edges.length + 8) {
+          const curKey = `${cur[0]},${cur[1]}->${nxt[0]},${nxt[1]}`;
+          if (used.has(curKey)) break;
+          used.add(curKey);
+          loop.push({x: cur[0] * TILE, y: cur[1] * TILE});
+          const outs = nextMap.get(`${nxt[0]},${nxt[1]}`) || [];
+          let candidate = null;
+          for (const c of outs) {
+            const candKey = `${nxt[0]},${nxt[1]}->${c[0]},${c[1]}`;
+            if (!used.has(candKey)) { candidate = c; break; }
+          }
+          cur = nxt;
+          if (!candidate) break;
+          nxt = candidate;
+          if (cur[0] === start[0] && cur[1] === start[1]) break;
+        }
+        if (loop.length >= 3) loops.push(loop);
+      }
+      return loops;
+    }
+
+    function smoothClosedPolygon(points, passes=2){
+      let pts = points.slice();
+      for(let pass=0; pass<passes; pass++){
+        if (pts.length < 3) break;
+        const next = [];
+        for(let i=0;i<pts.length;i++){
+          const a = pts[i];
+          const b = pts[(i+1)%pts.length];
+          next.push({x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25});
+          next.push({x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75});
+        }
+        pts = next;
+      }
+      return pts;
+    }
+
+    function buildDungeonRenderVectors(tiles){
+      const floorLoops = buildContourLoopsFromTiles(tiles, v => isRenderableFloorTile(v)).map(loop => smoothClosedPolygon(loop, 2));
+      const waterLoops = buildContourLoopsFromTiles(tiles, v => v === 2).map(loop => smoothClosedPolygon(loop, 1));
+      const bridgeRects = [];
+      for(let y=0;y<tiles.length;y++) for(let x=0;x<tiles[0].length;x++) {
+        if (tiles[y][x] === 3) bridgeRects.push({x:x*TILE, y:y*TILE, w:TILE, h:TILE});
+      }
+      return { floorLoops, waterLoops, bridgeRects };
+    }
+
+    function pathClosedLoops(ctx, loops, cam){
+      for (const loop of loops) {
+        if (!loop || loop.length < 2) continue;
+        ctx.moveTo(loop[0].x - cam.x, loop[0].y - cam.y);
+        for(let i=1;i<loop.length;i++) ctx.lineTo(loop[i].x - cam.x, loop[i].y - cam.y);
+        ctx.closePath();
+      }
+    }
+
+    function drawVectorDungeon(cam, d){
+      const vectors = d.renderVectors || buildDungeonRenderVectors(d.tiles);
+      d.renderVectors = vectors;
+
+      ctx.fillStyle = d.theme.path;
+      ctx.beginPath();
+      pathClosedLoops(ctx, vectors.floorLoops, cam);
+      ctx.fill('evenodd');
+
+      if (vectors.waterLoops.length) {
+        ctx.fillStyle = d.theme.water || '#466a9b';
+        ctx.beginPath();
+        pathClosedLoops(ctx, vectors.waterLoops, cam);
+        ctx.fill('evenodd');
+
+        ctx.save();
+        ctx.beginPath();
+        pathClosedLoops(ctx, vectors.waterLoops, cam);
+        ctx.clip('evenodd');
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.lineWidth = 10;
+        for (const loop of vectors.waterLoops) {
+          const bounds = loop.reduce((acc,p)=>({minX:Math.min(acc.minX,p.x), minY:Math.min(acc.minY,p.y), maxX:Math.max(acc.maxX,p.x), maxY:Math.max(acc.maxY,p.y)}), {minX:Infinity,minY:Infinity,maxX:-Infinity,maxY:-Infinity});
+          const y = bounds.minY - cam.y + 10;
+          ctx.beginPath();
+          ctx.moveTo(bounds.minX - cam.x + 8, y);
+          ctx.lineTo(bounds.maxX - cam.x - 8, y);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      if (vectors.bridgeRects.length) {
+        for (const b of vectors.bridgeRects) {
+          const px = b.x - cam.x, py = b.y - cam.y;
+          ctx.fillStyle = '#8c6a43';
+          ctx.beginPath();
+          ctx.roundRect(px, py, b.w, b.h, 4);
+          ctx.fill();
+          ctx.fillStyle = '#a98557';
+          for (let i = 2; i < b.w - 1; i += 5) ctx.fillRect(Math.floor(px) + i, Math.floor(py), 2, b.h);
+          ctx.fillStyle = 'rgba(60,35,12,0.35)';
+          ctx.fillRect(Math.floor(px), Math.floor(py) + 2, b.w, 2);
+          ctx.fillRect(Math.floor(px), Math.floor(py) + b.h - 4, b.w, 2);
+        }
+      }
+    }
+
     function findReachableBossPosition(dungeon, start, fallbackX, fallbackY){
       const reachable = dungeon.reachable || ensureDungeonReachability(dungeon);
       const offsets = [[-2,0],[2,0],[0,-2],[0,2],[-3,1],[3,-1],[-2,2],[2,-2],[0,0]];
@@ -1452,7 +1608,7 @@
       const stairsRoom = rooms[rooms.length-1];
       const start = {x:(startRoom.cx+0.5)*TILE, y:(startRoom.cy+0.5)*TILE};
       const stairs = {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE};
-      const dungeon = {w,h,tiles,objects:[],rooms,start,stairs,theme:themeForFloor(floor),layout:built.layout};
+      const dungeon = {w,h,tiles,objects:[],rooms,start,stairs,theme:themeForFloor(floor),layout:built.layout, renderVectors: buildDungeonRenderVectors(tiles)};
       ensureDungeonReachability(dungeon);
       dungeon.objects = scatterDungeonProps(tiles, rooms, startRoom, stairsRoom);
       clearStairsLandingZone(dungeon);
@@ -3023,20 +3179,7 @@
       ctx.fillStyle = d.theme.wall;
       ctx.fillRect(0,0,w,h);
 
-      const minTx = Math.floor(cam.x/TILE)-1, maxTx = Math.floor((cam.x+w)/TILE)+1;
-      const minTy = Math.floor(cam.y/TILE)-1, maxTy = Math.floor((cam.y+h)/TILE)+1;
-      for(let y=minTy;y<=maxTy;y++){
-        for(let x=minTx;x<=maxTx;x++){
-          if (d.tiles[y] && d.tiles[y][x]===0) {
-            drawPathTile(x, y, cam, d);
-          } else if (d.tiles[y] && d.tiles[y][x]===2) {
-            drawWaterTile(x, y, cam, d);
-          } else if (d.tiles[y] && d.tiles[y][x]===3) {
-            drawBridgeTile(x, y, cam, d);
-          }
-        }
-      }
-      drawWallEdges(cam, d, minTx, maxTx, minTy, maxTy);
+      drawVectorDungeon(cam, d);
 
       drawStairs(d.stairs.x-cam.x, d.stairs.y-cam.y, state.player.key && !state.stairsConsumed && state.floorChangingUntil <= state.t);
 
