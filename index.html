@@ -1,4 +1,4 @@
-<!-- ver. 0.5.45 -->
+<!-- ver. 0.5.38 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.45</div>
+  <div id="versionTag">ver. 0.5.38</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -734,8 +734,6 @@
         poisonTickAt: 0,
         antidoteMushrooms: 0,
         lastDamageAt: -999,
-        invulUntil: -999,
-        projectileInvulUntil: -999,
         key: false,
         sword: {tier:'wood', damage:10, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
@@ -1092,50 +1090,91 @@
     function createMazeDungeon(w,h,floor){
       const tiles = Array.from({length:h},()=>Array(w).fill(1));
       const rooms = [];
-      const gridW = Math.floor((w-3)/2);
-      const gridH = Math.floor((h-3)/2);
-      const visited = Array.from({length:gridH},()=>Array(gridW).fill(false));
-      const stack = [[0,0]];
-      visited[0][0] = true;
-      const carveCell = (gx,gy)=>{
-        const tx = 2 + gx*2, ty = 2 + gy*2;
-        if(tiles[ty] && tiles[ty][tx]!==undefined) tiles[ty][tx]=0;
+      const margin = 3;
+      const makeRoomFromCenter = (cx, cy, rw, rh, shape='ellipse')=>{
+        const room = {
+          x: clamp(Math.round(cx - rw / 2), margin, w - rw - margin),
+          y: clamp(Math.round(cy - rh / 2), margin, h - rh - margin),
+          w: rw,
+          h: rh,
+          cx: 0,
+          cy: 0,
+          shape,
+        };
+        room.cx = Math.floor(room.x + room.w / 2);
+        room.cy = Math.floor(room.y + room.h / 2);
+        return room;
       };
-      carveCell(0,0);
-      while(stack.length){
-        const [cx,cy] = stack[stack.length-1];
-        const dirs = shuffle([[1,0],[-1,0],[0,1],[0,-1]]).filter(([dx,dy])=>{
-          const nx=cx+dx, ny=cy+dy;
-          return nx>=0 && ny>=0 && nx<gridW && ny<gridH && !visited[ny][nx];
+
+      const startRoom = makeRoomFromCenter(6, 6, 7, 7, 'octagon');
+      const stairsRoom = makeRoomFromCenter(w - 7, h - 7, 7, 7, 'octagon');
+      carveBlobRoom(tiles, startRoom, startRoom.shape);
+      rooms.push(startRoom);
+
+      const anchors = [{x:startRoom.cx, y:startRoom.cy}];
+      const midCount = 4 + Math.min(4, Math.floor(floor / 4));
+      const usableW = Math.max(12, w - 12);
+      const usableH = Math.max(12, h - 12);
+      for(let i=0;i<midCount;i++){
+        const t = (i + 1) / (midCount + 1);
+        const baseX = lerp(startRoom.cx, stairsRoom.cx, t);
+        const baseY = lerp(startRoom.cy, stairsRoom.cy, t);
+        const driftX = Math.sin((i + 1) * 1.27 + floor * 0.41) * (usableW * 0.18);
+        const driftY = Math.cos((i + 1) * 1.11 + floor * 0.33) * (usableH * 0.2);
+        anchors.push({
+          x: clamp(Math.round(baseX + driftX + randi(-2, 2)), margin + 2, w - margin - 3),
+          y: clamp(Math.round(baseY + driftY + randi(-2, 2)), margin + 2, h - margin - 3),
         });
-        if(!dirs.length){ stack.pop(); continue; }
-        const [dx,dy] = dirs[0];
-        const nx = cx+dx, ny = cy+dy;
-        visited[ny][nx] = true;
-        const tx = 2 + cx*2 + dx, ty = 2 + cy*2 + dy;
-        if(tiles[ty] && tiles[ty][tx]!==undefined) tiles[ty][tx]=0;
-        carveCell(nx,ny);
-        stack.push([nx,ny]);
       }
-      for(let gy=0;gy<gridH;gy++) for(let gx=0;gx<gridW;gx++){
-        if(Math.random()<0.09){
-          const tx = 2 + gx*2, ty = 2 + gy*2;
-          const [dx,dy] = shuffle([[1,0],[-1,0],[0,1],[0,-1]])[0];
-          if(tiles[ty+dy] && tiles[ty+dy][tx+dx]!==undefined) tiles[ty+dy][tx+dx]=0;
+      anchors.push({x:stairsRoom.cx, y:stairsRoom.cy});
+
+      for(let i=1;i<anchors.length-1;i++){
+        const rw = randi(5, 9);
+        const rh = randi(5, 9);
+        const shapePool = ['ellipse','diamond','octagon'];
+        const room = makeRoomFromCenter(anchors[i].x, anchors[i].y, rw, rh, shapePool[(i + floor) % shapePool.length]);
+        carveBlobRoom(tiles, room, room.shape);
+        rooms.push(room);
+        anchors[i] = {x: room.cx, y: room.cy};
+      }
+
+      const carveRibbon = (a, b, width, wander)=>{
+        carveWidePath(tiles, a.x, a.y, b.x, b.y, width, wander);
+        if (Math.random() < 0.7) {
+          const mx = Math.round((a.x + b.x) * 0.5 + randi(-2, 2));
+          const my = Math.round((a.y + b.y) * 0.5 + randi(-2, 2));
+          carveWidePath(tiles, a.x, a.y, mx, my, Math.max(1, width - 1), wander + 0.04);
+          carveWidePath(tiles, mx, my, b.x, b.y, width, wander + 0.04);
+        }
+      };
+
+      for(let i=0;i<anchors.length-1;i++){
+        carveRibbon(anchors[i], anchors[i+1], Math.random()<0.35 ? 2 : 1, 0.08 + (i % 2) * 0.04);
+      }
+
+      const branchCount = 5 + Math.min(4, Math.floor(floor / 5));
+      for(let i=0;i<branchCount;i++){
+        const base = anchors[randi(1, Math.max(1, anchors.length - 2))];
+        const branchLen = randi(4, 10);
+        const dir = shuffle([[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]])[0];
+        const end = {
+          x: clamp(base.x + dir[0] * branchLen + randi(-2, 2), margin + 1, w - margin - 2),
+          y: clamp(base.y + dir[1] * branchLen + randi(-2, 2), margin + 1, h - margin - 2),
+        };
+        carveRibbon(base, end, 1, 0.12);
+        const room = makeRoomFromCenter(end.x, end.y, randi(4, 7), randi(4, 7), i % 2 === 0 ? 'diamond' : 'ellipse');
+        carveBlobRoom(tiles, room, room.shape);
+        rooms.splice(rooms.length - 0, 0, room);
+      }
+
+      for(let i=0;i<anchors.length-2;i++){
+        if (Math.random() < 0.45) {
+          carveRibbon(anchors[i], anchors[i+2], 1, 0.14);
         }
       }
-      const startRoom = {x:3,y:3,w:6,h:6,cx:6,cy:6,shape:'octagon'};
-      const stairsRoom = {x:w-9,y:h-9,w:6,h:6,cx:w-6,cy:h-6,shape:'octagon'};
-      carveBlobRoom(tiles, startRoom, 'octagon');
-      carveBlobRoom(tiles, stairsRoom, 'octagon');
-      rooms.push(startRoom, stairsRoom);
-      for(let i=0;i<8;i++){
-        const rw=randi(4,7), rh=randi(4,7), rx=randi(3,w-rw-4), ry=randi(3,h-rh-4);
-        const room={x:rx,y:ry,w:rw,h:rh,cx:Math.floor(rx+rw/2),cy:Math.floor(ry+rh/2),shape:i%2?'ellipse':'diamond'};
-        carveBlobRoom(tiles, room, room.shape);
-        rooms.splice(rooms.length-1,0,room);
-      }
-      rooms.sort((a,b)=>(a.cx+a.cy)-(b.cx+b.cy));
+
+      carveBlobRoom(tiles, stairsRoom, stairsRoom.shape);
+      rooms.push(stairsRoom);
       return {tiles, rooms, layout:'maze'};
     }
 
@@ -1341,8 +1380,12 @@
       const sizeFloor = Math.min(safeFloor, 20);
       const w = 46 + sizeFloor * 2;
       const h = 34 + sizeFloor;
-      // クリア遷移後の生成ハングを避けるため、次フロア生成は軽量で安定したレイアウトに固定する。
-      const built = (safeFloor % 3 === 0 ? createLinearDungeon : createRoomyDungeon)(w, h, safeFloor);
+      // レイアウトを循環させる。maze は自由曲線っぽい通路を持つ変則フロア。
+      let built;
+      if (safeFloor % 5 === 0) built = createMazeDungeon(w, h, safeFloor);
+      else if (safeFloor % 3 === 0) built = createLinearDungeon(w, h, safeFloor);
+      else if (safeFloor % 4 === 0) built = createCaveDungeon(w, h, safeFloor);
+      else built = createRoomyDungeon(w, h, safeFloor);
       const tiles = built.tiles;
       const rooms = built.rooms;
       const startRoom = rooms[0];
@@ -1489,16 +1532,16 @@
         }
       }
 
-      function totalTurretsForFloor(floor, encounterTheme, roomCount) {
-        if (floor < 5) return 0;
-        const t = clamp((floor - 5) / 15, 0, 1);
-        const base = 1 + t * 9;
-        const variance = 0.35 + t * 0.9;
-        let total = Math.round(base + rand(-variance, variance));
-        if (encounterTheme === 'sentries') total += 1;
-        if (encounterTheme === 'fortress') total += Math.random() < 0.5 ? 1 : 0;
-        total = Math.max(1, Math.min(10, total));
-        return Math.min(total, Math.max(1, roomCount * 2));
+      function turretGroupCountForFloor(floor, encounterTheme) {
+        let count = 1;
+        if (floor >= 7) count = 1 + (Math.random() < 0.45 ? 1 : 0);
+        if (floor >= 10) count = 2 + (Math.random() < 0.35 ? 1 : 0);
+        if (floor >= 14) count = 2 + (Math.random() < 0.65 ? 1 : 0);
+        if (floor >= 18) count = 3 + (Math.random() < 0.45 ? 1 : 0);
+        if (floor >= 24) count = 3 + (Math.random() < 0.75 ? 1 : 0);
+        if (encounterTheme === 'sentries') count += 1;
+        if (encounterTheme === 'fortress') count += Math.random() < 0.5 ? 1 : 0;
+        return Math.max(1, Math.min(5, count));
       }
 
       function turretPatternPoints(room, count, encounterTheme) {
@@ -1527,7 +1570,8 @@
         return patterns[0];
       }
 
-      function spawnTurretGroupInRoom(room, floor, encounterTheme, count) {
+      function spawnTurretGroupInRoom(room, floor, encounterTheme) {
+        const count = turretGroupCountForFloor(floor, encounterTheme);
         const points = turretPatternPoints(room, count, encounterTheme);
         const centerX = room.cx * TILE;
         const centerY = room.cy * TILE;
@@ -1561,44 +1605,6 @@
       const encounterTheme = encounterThemeForFloor(state.floor, state.dungeon.layout);
       const roomPool = spawnRooms.slice();
       const waveScale = enemyWaveMultiplier(state.floor);
-      const turretBudget = totalTurretsForFloor(state.floor, encounterTheme, roomPool.length);
-      const turretRooms = roomPool.slice().sort((a, b) => (b.w * b.h) - (a.w * a.h));
-      const turretAllocations = new Map();
-      if (turretBudget > 0 && turretRooms.length) {
-        let remaining = turretBudget;
-        for (let i = 0; i < turretRooms.length && remaining > 0; i++) {
-          const room = turretRooms[i];
-          const roomArea = room.w * room.h;
-          let cap = 1;
-          if (state.floor >= 9 && roomArea >= 45) cap = 2;
-          if (state.floor >= 14 && roomArea >= 60) cap = 3;
-          if (state.floor >= 18 && roomArea >= 80) cap = 4;
-          cap = Math.min(cap, remaining);
-          if (cap <= 0) continue;
-          const waveBias = clamp((state.floor - 5) / 15, 0, 1);
-          let give = 1;
-          while (give < cap && Math.random() < (0.22 + waveBias * 0.38)) give++;
-          if (encounterTheme === 'sentries' && give < cap && Math.random() < 0.45) give++;
-          turretAllocations.set(room, give);
-          remaining -= give;
-        }
-        let cursor = 0;
-        while (remaining > 0 && turretRooms.length) {
-          const room = turretRooms[cursor % turretRooms.length];
-          const current = turretAllocations.get(room) || 0;
-          const roomArea = room.w * room.h;
-          let cap = 1;
-          if (state.floor >= 9 && roomArea >= 45) cap = 2;
-          if (state.floor >= 14 && roomArea >= 60) cap = 3;
-          if (state.floor >= 18 && roomArea >= 80) cap = 4;
-          if (current < cap) {
-            turretAllocations.set(room, current + 1);
-            remaining--;
-          }
-          cursor++;
-          if (cursor > turretRooms.length * 4) break;
-        }
-      }
 
       for (let roomIndex = 0; roomIndex < roomPool.length; roomIndex++) {
         const room = roomPool[roomIndex];
@@ -1613,9 +1619,9 @@
 
         for (let i = 0; i < localCount; i++) addEnemy(room);
 
-        const turretCount = turretAllocations.get(room) || 0;
-        if (turretCount > 0) {
-          spawnTurretGroupInRoom(room, state.floor, encounterTheme, turretCount);
+        if (state.floor >= 5 && (encounterTheme === 'sentries' || Math.random() < (0.16 + Math.min(0.22, state.floor * 0.008) * waveScale))) {
+          // 砲台は5面以降に出現。深い階層やテーマに応じて、単体だけでなく複数の編隊でも配置する。
+          spawnTurretGroupInRoom(room, state.floor, encounterTheme);
         }
 
         if (encounterTheme === 'nest' || Math.random() < (0.14 + state.floor * 0.012) * waveScale) {
@@ -1724,19 +1730,13 @@
       }
     }
 
-    function turretProjectileDamageForFloor(floor){
-      const t = clamp((floor - 5) / 15, 0, 1);
-      return Math.round(15 + (50 - 15) * t);
-    }
-
     function makeFloorTurretEnemy(x, y, floor){
       // 固定砲台専用種族。青系で、階層が進むほど濃く、強くなる。
       const tier = Math.min(5, Math.floor((floor - 1) / 5));
       const colors = ['#bfe8ff', '#8fd1ff', '#5daeff', '#3b82f6', '#2456c9', '#173a8f'];
       const shotEveryBase = [1.8, 1.5, 1.2, 0.95, 0.75, 0.58][tier];
       const projSpeed = [180, 220, 260, 310, 360, 420][tier];
-      const projectileDamage = turretProjectileDamageForFloor(floor);
-      const damage = Math.max(4, Math.round(projectileDamage / 6));
+      const damage = [6, 12, 18, 24, 36, 48][tier];
       const hp = [10, 14, 18, 24, 30, 40][tier];
       const enemy = {
         type: 'floorTurret',
@@ -1760,7 +1760,6 @@
         targeting:'direct',
         shotEvery: Math.max(0.22, shotEveryBase - floor * 0.005),
         projectileSpeed: clampEnemySpeed(projSpeed),
-        projectileDamage,
       };
       enemy.gold = goldValue(enemy);
       return enemy;
@@ -2069,7 +2068,7 @@
               from:'enemy',
               x:spawnX, y:spawnY,
               vx:dir.x*(e.projectileSpeed || 220), vy:dir.y*(e.projectileSpeed || 220),
-              r:e.boss?8:7, damage:(e.projectileDamage || Math.max(1, Math.round(e.attack * 6.00))), life:4,
+              r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack * 6.00)), life:4,
               color:e.accent || '#ff9b6a', poison:!!e.poison
             });
           }
@@ -2519,10 +2518,9 @@
             const pAtk = p.attack + (front?1:0);
             const pDef = p.defense + (front?1:0);
             const dToEnemy = Math.max(1, Math.floor(pAtk - e.defense));
-            let dToPlayer = Math.max(1, Math.floor(e.attack - pDef));
-            if (e.turret) dToPlayer = Math.max(1, Math.round(dToPlayer * 0.5));
+            const dToPlayer = Math.max(1, Math.floor(e.attack - pDef));
             damageEnemy(e, dToEnemy);
-            damagePlayer(dToPlayer, e.poison ? rand(5,20) : 0, {source:e.turret ? 'turret_contact' : 'contact'});
+            damagePlayer(dToPlayer, e.poison ? rand(5,20) : 0);
           }
           const n = norm(e.x-p.x, e.y-p.y);
           p.vx -= n.x*8; p.vy -= n.y*8;
@@ -2578,7 +2576,7 @@
           if (!s.lastContact || state.t - s.lastContact >= CONTACT_INTERVAL) {
             s.lastContact = state.t;
             s.hp -= Math.max(1, p.attack - s.defense);
-            damagePlayer(1,0,{source:'spawner_contact'});
+            damagePlayer(1,0);
             if (s.hp <= 0) s.dead = true;
           }
         }
@@ -2627,7 +2625,7 @@
         if (pr.life <= 0) continue;
         if (pr.from==='enemy') {
           if (dist(pr,p) < pr.r + p.r) {
-            damagePlayer(pr.damage, pr.poison ? rand(5,20) : 0, {source:'projectile'});
+            damagePlayer(pr.damage, pr.poison ? rand(5,20) : 0);
             addPastelExplosion(pr.x, pr.y, 1.0);
             pr.life = -1;
           }
@@ -2714,37 +2712,15 @@
       }
     }
 
-    function damagePlayer(dmg, poisonSec, opts = {}){
+    function damagePlayer(dmg, poisonSec){
       const p = state.player;
-      const now = state.t;
-      const source = opts.source || 'generic';
-      if (source === 'projectile' && now < (p.projectileInvulUntil || -999)) return false;
-      if (source !== 'poison' && now < (p.invulUntil || -999)) return false;
       p.hp -= dmg;
-      p.lastDamageAt = now;
-      if (dmg > 0) {
-        addFloatingText(
-          p.x + rand(-10, 10),
-          p.y - p.r - 10,
-          `-${Math.round(dmg)}`,
-          '#ff4b4b',
-          1.15
-        );
-      }
-      if (source === 'projectile') {
-        p.projectileInvulUntil = now + 0.22;
-        p.invulUntil = Math.max(p.invulUntil || -999, now + 0.14);
-      } else if (source === 'turret_contact') {
-        p.invulUntil = now + 0.18;
-      } else if (source !== 'poison') {
-        p.invulUntil = now + 0.14;
-      }
+      p.lastDamageAt = state.t;
       playSfx('damage');
       if (poisonSec > 0) {
-        p.poisonUntil = Math.max(p.poisonUntil, now + poisonSec);
-        p.poisonTickAt = Math.min(p.poisonTickAt || Infinity, now + 1);
+        p.poisonUntil = Math.max(p.poisonUntil, state.t + poisonSec);
+        p.poisonTickAt = Math.min(p.poisonTickAt || Infinity, state.t + 1);
       }
-      return true;
     }
 
     function maybeDropWeapon(x,y){
