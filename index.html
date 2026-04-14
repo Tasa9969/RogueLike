@@ -2296,11 +2296,19 @@ function clearStairsLandingZone(dungeon){
         return inside;
       }
 
+      let nearbyNodeCount = 0;
+
       if (d.mazeNodes) {
         for (const node of d.mazeNodes) {
           const local = rotateLocal(x - node.x, y - node.y, node.rot || 0);
           const hw = Math.max(10, node.width * 0.5 - inset);
           const hh = Math.max(10, node.height * 0.5 - inset);
+
+          // Count "nearby" rooms using a looser bound than the solid occupancy test.
+          if (Math.abs(local.x) <= hw + TILE * 0.8 && Math.abs(local.y) <= hh + TILE * 0.8) {
+            nearbyNodeCount++;
+          }
+
           if (node.shape === 'rect') {
             if (Math.abs(local.x) <= hw && Math.abs(local.y) <= hh) return true;
           } else if (node.shape === 'ellipse') {
@@ -2318,13 +2326,17 @@ function clearStairsLandingZone(dungeon){
         }
       }
 
-      const tc = tileCoordsFromWorld(x, y);
-      const rTiles = Math.max(1, Math.ceil((r + 6) / TILE));
-      for (let ty = tc.ty - rTiles; ty <= tc.ty + rTiles; ty++) {
-        for (let tx = tc.tx - rTiles; tx <= tc.tx + rTiles; tx++) {
-          if (!isTileInBounds(d.tiles, tx, ty)) continue;
-          if (!isWalkableTileValue(d.tiles[ty][tx])) continue;
-          if (circleRect(x, y, r, tx * TILE, ty * TILE, TILE, TILE)) return true;
+      // Seam rescue only for likely room-room overlaps.
+      // We only trust carved walkable tiles here when the point is near at least two room bodies.
+      if (nearbyNodeCount >= 2) {
+        const tc = tileCoordsFromWorld(x, y);
+        const rTiles = Math.max(1, Math.ceil((r + 4) / TILE));
+        for (let ty = tc.ty - rTiles; ty <= tc.ty + rTiles; ty++) {
+          for (let tx = tc.tx - rTiles; tx <= tc.tx + rTiles; tx++) {
+            if (!isTileInBounds(d.tiles, tx, ty)) continue;
+            if (!isWalkableTileValue(d.tiles[ty][tx])) continue;
+            if (circleRect(x, y, r, tx * TILE, ty * TILE, TILE, TILE)) return true;
+          }
         }
       }
 
