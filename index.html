@@ -1,4 +1,4 @@
-<!-- ver. 0.5.67-turretcap-knockback -->
+<!-- ver. 0.5.68-floor-safe -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -1849,20 +1849,67 @@ function clearStairsLandingZone(dungeon){
       const waveB = Math.sin(depth * 0.53 + 0.8);
       const w = Math.round(44 + t * 34 + waveA * 4 + waveB * 2);
       const h = Math.round(32 + t * 24 + Math.cos(depth * 0.31) * 3 + waveA * 2);
-      const built = createMazeDungeon(w, h, safeFloor);
-      const tiles = built.tiles;
-      const rooms = built.rooms;
-      const startRoom = rooms[0];
-      const stairsRoom = rooms[Math.max(1, built.mazeNodes ? Math.min(built.mazeNodes.length - 1, rooms.length - 1) : rooms.length-1)];
+
+      function normalizeDungeonBuild(built){
+        if (!built || !Array.isArray(built.rooms) || !built.tiles) return null;
+        const rooms = built.rooms.filter(r => r && Number.isFinite(r.cx) && Number.isFinite(r.cy));
+        if (rooms.length < 2) return null;
+        const startRoom = rooms[0];
+        const stairsIndex = built.mazeNodes
+          ? Math.min(Math.max(1, built.mazeNodes.length - 1), rooms.length - 1)
+          : rooms.length - 1;
+        const stairsRoom = rooms[stairsIndex] || rooms[rooms.length - 1] || startRoom;
+        if (!startRoom || !stairsRoom) return null;
+        return {
+          tiles: built.tiles,
+          rooms,
+          startRoom,
+          stairsRoom,
+          layout: built.layout,
+          vectorMaze: !!built.vectorMaze,
+          mazeSegments: built.mazeSegments || [],
+          mazeNodes: built.mazeNodes || []
+        };
+      }
+
+      let normalized = null;
+      for (let attempt = 0; attempt < 8 && !normalized; attempt++) {
+        normalized = normalizeDungeonBuild(createMazeDungeon(w, h, safeFloor));
+      }
+
+      if (!normalized) {
+        const fallback = createRadialDungeon(w, h, safeFloor);
+        const fallbackRooms = (fallback.rooms || []).filter(r => r && Number.isFinite(r.cx) && Number.isFinite(r.cy));
+        const startRoom = fallbackRooms[0];
+        const stairsRoom = fallbackRooms[fallbackRooms.length - 1] || startRoom;
+        if (!startRoom || !stairsRoom) {
+          throw new Error('Failed to build dungeon with at least two rooms');
+        }
+        normalized = {
+          tiles: fallback.tiles,
+          rooms: fallbackRooms.length >= 2 ? fallbackRooms : [startRoom, stairsRoom],
+          startRoom,
+          stairsRoom,
+          layout: fallback.layout || 'radial',
+          vectorMaze: !!fallback.vectorMaze,
+          mazeSegments: fallback.mazeSegments || [],
+          mazeNodes: fallback.mazeNodes || []
+        };
+      }
+
+      const tiles = normalized.tiles;
+      const rooms = normalized.rooms;
+      const startRoom = normalized.startRoom;
+      const stairsRoom = normalized.stairsRoom;
       const start = {x:(startRoom.cx+0.5)*TILE, y:(startRoom.cy+0.5)*TILE};
       const stairs = {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE};
       const dungeon = {
         w,h,tiles,objects:[],rooms,start,stairs,
         theme:themeForFloor(floor),
-        layout:built.layout,
-        vectorMaze:!!built.vectorMaze,
-        mazeSegments:built.mazeSegments || [],
-        mazeNodes:built.mazeNodes || []
+        layout:normalized.layout,
+        vectorMaze:normalized.vectorMaze,
+        mazeSegments:normalized.mazeSegments,
+        mazeNodes:normalized.mazeNodes
       };
       ensureDungeonReachability(dungeon);
       dungeon.objects = scatterDungeonProps(tiles, rooms, startRoom, stairsRoom);
