@@ -1,4 +1,4 @@
-<!-- ver. 0.5.68-floor-safe -->
+<!-- ver. 0.5.69-boss-safe -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -1823,21 +1823,56 @@ function clearStairsLandingZone(dungeon){
 
     function findReachableBossPosition(dungeon, start, fallbackX, fallbackY){
       const reachable = dungeon.reachable || ensureDungeonReachability(dungeon);
-      const offsets = [[-2,0],[2,0],[0,-2],[0,2],[-3,1],[3,-1],[-2,2],[2,-2],[0,0]];
-      const stairsTile = tileCoordsFromWorld(dungeon.stairs.x, dungeon.stairs.y);
-      for (const [ox, oy] of offsets) {
-        const tx = stairsTile.tx + ox, ty = stairsTile.ty + oy;
+      const startTile = tileCoordsFromWorld(start.x, start.y);
+
+      function roomDistanceScore(room){
+        const dx = room.cx - startTile.tx;
+        const dy = room.cy - startTile.ty;
+        return dx * dx + dy * dy;
+      }
+
+      const candidateRooms = (dungeon.rooms || [])
+        .slice()
+        .sort((a, b) => roomDistanceScore(b) - roomDistanceScore(a));
+
+      for (const room of candidateRooms) {
+        const roomW = Math.max(2, Math.floor(room.w || 2));
+        const roomH = Math.max(2, Math.floor(room.h || 2));
+        const localOffsets = [
+          [0, 0],
+          [-Math.floor(roomW * 0.25), 0],
+          [ Math.floor(roomW * 0.25), 0],
+          [0, -Math.floor(roomH * 0.25)],
+          [0,  Math.floor(roomH * 0.25)],
+          [-1, -1], [1, -1], [-1, 1], [1, 1],
+          [-2, 0], [2, 0], [0, -2], [0, 2],
+        ];
+
+        for (const [ox, oy] of localOffsets) {
+          const tx = Math.round(room.cx + ox);
+          const ty = Math.round(room.cy + oy);
+          if (!isTileInBounds(dungeon.tiles, tx, ty)) continue;
+          if (!reachable.has(`${tx},${ty}`)) continue;
+          const wx = (tx + 0.5) * TILE;
+          const wy = (ty + 0.5) * TILE;
+          if (!isFarFromStartSpawn(wx, wy, start)) continue;
+          return {x: wx, y: wy};
+        }
+      }
+
+      const fallbackTile = tileCoordsFromWorld(fallbackX, fallbackY);
+      const fallbackOffsets = [[0,0],[-1,0],[1,0],[0,-1],[0,1],[-2,0],[2,0],[0,-2],[0,2]];
+      for (const [ox, oy] of fallbackOffsets) {
+        const tx = fallbackTile.tx + ox;
+        const ty = fallbackTile.ty + oy;
         if (!isTileInBounds(dungeon.tiles, tx, ty)) continue;
         if (!reachable.has(`${tx},${ty}`)) continue;
-        const wx = (tx + 0.5) * TILE, wy = (ty + 0.5) * TILE;
-        if (isFarFromStartSpawn(wx, wy, start)) return {x: wx, y: wy};
+        const wx = (tx + 0.5) * TILE;
+        const wy = (ty + 0.5) * TILE;
+        if (!isFarFromStartSpawn(wx, wy, start)) continue;
+        return {x: wx, y: wy};
       }
-      for (const room of dungeon.rooms.slice().reverse()) {
-        const tx = room.cx, ty = room.cy;
-        if (!reachable.has(`${tx},${ty}`)) continue;
-        const wx = (tx + 0.5) * TILE, wy = (ty + 0.5) * TILE;
-        if (isFarFromStartSpawn(wx, wy, start)) return {x: wx, y: wy};
-      }
+
       return {x: fallbackX, y: fallbackY};
     }
 
@@ -2228,13 +2263,21 @@ function clearStairsLandingZone(dungeon){
       }
 
       const bossType = bossTypeForFloor(state.floor);
-      let bossX = state.dungeon.stairs.x - TILE*2;
-      let bossY = state.dungeon.stairs.y;
+      const farRooms = (state.dungeon.rooms || [])
+        .slice()
+        .filter(room => isFarFromStartSpawn((room.cx + 0.5) * TILE, (room.cy + 0.5) * TILE, state.dungeon.start))
+        .sort((a, b) => {
+          const ax = (a.cx + 0.5) * TILE - state.dungeon.start.x;
+          const ay = (a.cy + 0.5) * TILE - state.dungeon.start.y;
+          const bx = (b.cx + 0.5) * TILE - state.dungeon.start.x;
+          const by = (b.cy + 0.5) * TILE - state.dungeon.start.y;
+          return (bx * bx + by * by) - (ax * ax + ay * ay);
+        });
 
-      if (!isFarFromStartSpawn(bossX, bossY, state.dungeon.start)) {
-        bossX = state.dungeon.stairs.x + TILE*2;
-        bossY = state.dungeon.stairs.y + TILE*2;
-      }
+      const bossAnchorRoom = farRooms[0] || state.dungeon.stairsRoom || state.dungeon.rooms[state.dungeon.rooms.length - 1];
+      let bossX = bossAnchorRoom ? (bossAnchorRoom.cx + 0.5) * TILE : state.dungeon.stairs.x;
+      let bossY = bossAnchorRoom ? (bossAnchorRoom.cy + 0.5) * TILE : state.dungeon.stairs.y;
+
       const bossSpot = findReachableBossPosition(state.dungeon, state.dungeon.start, bossX, bossY);
       bossX = bossSpot.x;
       bossY = bossSpot.y;
