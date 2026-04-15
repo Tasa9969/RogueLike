@@ -1,4 +1,4 @@
-<!-- ver. 0.5.69-boss-safe -->
+<!-- ver. 0.5.70-route-floor-collision -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.69-boss-safe</div>
+  <div id="versionTag">ver. 0.5.70-route-floor-collision</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1775,6 +1775,49 @@
       return path;
     }
 
+    function findRouteTilesBetween(dungeon, fromWorld, toWorld){
+      const tiles = dungeon.tiles;
+      const fromTile = tileCoordsFromWorld(fromWorld.x, fromWorld.y);
+      const toTile = tileCoordsFromWorld(toWorld.x, toWorld.y);
+      const startKey = `${fromTile.tx},${fromTile.ty}`;
+      const goalKey = `${toTile.tx},${toTile.ty}`;
+      const q = [[fromTile.tx, fromTile.ty]];
+      const prev = new Map();
+      prev.set(startKey, null);
+
+      for (let i = 0; i < q.length; i++) {
+        const [cx, cy] = q[i];
+        if (cx === toTile.tx && cy === toTile.ty) break;
+        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        for (const [dx, dy] of dirs) {
+          const nx = cx + dx, ny = cy + dy;
+          const key = `${nx},${ny}`;
+          if (!isTileInBounds(tiles, nx, ny) || prev.has(key)) continue;
+          if (!isWalkableTileValue(tiles[ny][nx])) continue;
+          prev.set(key, [cx, cy]);
+          q.push([nx, ny]);
+        }
+      }
+
+      if (!prev.has(goalKey)) return [];
+      const path = [];
+      let cur = [toTile.tx, toTile.ty];
+      while (cur) {
+        path.push({tx: cur[0], ty: cur[1]});
+        cur = prev.get(`${cur[0]},${cur[1]}`);
+      }
+      path.reverse();
+      return path;
+    }
+
+    function clearRouteObstaclesBetween(dungeon, fromWorld, toWorld, band = null){
+      const pathTiles = findRouteTilesBetween(dungeon, fromWorld, toWorld);
+      if (!pathTiles.length) return [];
+      const effectiveBand = band === null ? (dungeon.vectorMaze ? 1 : 0) : band;
+      dungeon.objects = dungeon.objects.filter(o => !rectOverlapsPathBand(o, pathTiles, effectiveBand));
+      return pathTiles;
+    }
+
     function rectOverlapsPathBand(obj, pathTiles, band = 1){
       const left = obj.x;
       const right = obj.x + obj.w;
@@ -1791,11 +1834,8 @@
     }
 
     function clearMainRouteObstacles(dungeon){
-      const pathTiles = findMainRouteTiles(dungeon);
+      const pathTiles = clearRouteObstaclesBetween(dungeon, dungeon.start, dungeon.stairs);
       if (!pathTiles.length) return;
-
-      const band = dungeon.vectorMaze ? 1 : 0;
-      dungeon.objects = dungeon.objects.filter(o => !rectOverlapsPathBand(o, pathTiles, band));
 
       const startBandRadius = TILE * 2.2;
       dungeon.objects = dungeon.objects.filter(o => {
@@ -2281,6 +2321,8 @@ function clearStairsLandingZone(dungeon){
       const bossSpot = findReachableBossPosition(state.dungeon, state.dungeon.start, bossX, bossY);
       bossX = bossSpot.x;
       bossY = bossSpot.y;
+      clearRouteObstaclesBetween(state.dungeon, state.dungeon.start, {x: bossX, y: bossY}, state.dungeon.vectorMaze ? 1 : 0);
+      clearRouteObstaclesBetween(state.dungeon, state.dungeon.start, state.dungeon.stairs, state.dungeon.vectorMaze ? 1 : 0);
       enemies.push(makeEnemy(bossType, bossX, bossY, state.floor, true));
 
       state.enemies = enemies.filter(e => e.boss || isFarFromStartSpawn(e.x, e.y, state.dungeon.start));
@@ -2594,17 +2636,11 @@ function clearStairsLandingZone(dungeon){
 
     function canMoveCircle(x,y,r){
       const d = state.dungeon;
-      if (d.vectorMaze) {
-        if (!canOccupyVectorMaze(d, x, y, r)) return false;
-        for (const o of d.objects) {
-          if (!o.dead && circleRect(x,y,r,o.x,o.y,o.w,o.h)) return false;
-        }
-        return true;
-      }
       const minX = Math.floor((x-r)/TILE)-1, maxX = Math.floor((x+r)/TILE)+1;
       const minY = Math.floor((y-r)/TILE)-1, maxY = Math.floor((y+r)/TILE)+1;
       for(let ty=minY;ty<=maxY;ty++) for(let tx=minX;tx<=maxX;tx++){
-        if (!d.tiles[ty] || d.tiles[ty][tx]===undefined || d.tiles[ty][tx]===1 || (d.tiles[ty][tx]===2)) {
+        const tile = d.tiles[ty]?.[tx];
+        if (tile === undefined || tile === 1 || tile === 2) {
           if (circleRect(x,y,r,tx*TILE,ty*TILE,TILE,TILE)) return false;
         }
       }
