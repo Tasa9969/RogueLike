@@ -1,5 +1,4 @@
-<!-- ver. 0.5.66-turret-a -->
-<!DOCTYPE html>
+<!-- ver. 0.5.67-turretcap-knockback<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -196,7 +195,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.66-turret-a</div>
+  <div id="versionTag">ver. 0.5.62-wide</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -636,13 +635,14 @@
     }
 
     function swordDamageFromPoints(points){
-      if (points >= 320) return 12;
-      if (points >= 160) return 10;
-      if (points >= 80) return 8;
-      if (points >= 40) return 6;
-      if (points >= 20) return 4;
-      if (points >= 10) return 2;
-      return 1;
+      let base = 1;
+      if (points >= 320) base = 12;
+      else if (points >= 160) base = 10;
+      else if (points >= 80) base = 8;
+      else if (points >= 40) base = 6;
+      else if (points >= 20) base = 4;
+      else if (points >= 10) base = 2;
+      return base * SWORD_GLOBAL_DAMAGE_MULTIPLIER;
     }
 
     function magicTierFromPoints(points){
@@ -682,6 +682,7 @@
     }
 
     const MAGIC_GLOBAL_DAMAGE_MULTIPLIER = 3;
+    const SWORD_GLOBAL_DAMAGE_MULTIPLIER = 2;
 
     function refreshMagicWeapon(bow, floor){
       if (!bow) return null;
@@ -735,7 +736,7 @@
         antidoteMushrooms: 0,
         lastDamageAt: -999,
         key: false,
-        sword: {tier:'wood', damage:10, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
+        sword: {tier:'wood', damage:10 * SWORD_GLOBAL_DAMAGE_MULTIPLIER, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
         bow: {tier:'copper', damage:2, arrows:100, max:UNLIMITED_AMMO_CAP, speed:340, cooldown:0.92, last:-9, points:0, effectivePoints:0, label:'カッパー'},
       };
@@ -2002,16 +2003,49 @@ function clearStairsLandingZone(dungeon){
         }
       }
 
-      function turretGroupCountForFloor(floor, encounterTheme) {
-        let count = 1;
-        if (floor >= 7) count = 1 + (Math.random() < 0.45 ? 1 : 0);
-        if (floor >= 10) count = 2 + (Math.random() < 0.35 ? 1 : 0);
-        if (floor >= 14) count = 2 + (Math.random() < 0.65 ? 1 : 0);
-        if (floor >= 18) count = 3 + (Math.random() < 0.45 ? 1 : 0);
-        if (floor >= 24) count = 3 + (Math.random() < 0.75 ? 1 : 0);
-        if (encounterTheme === 'sentries') count += 1;
-        if (encounterTheme === 'fortress') count += Math.random() < 0.5 ? 1 : 0;
-        return Math.max(1, Math.min(5, count));
+      function floorTurretTargetCount(floor) {
+        const f = Math.max(1, floor || 1);
+        if (f < 5) return 0;
+        if (f === 5) return 3;
+        if (f >= 100) return 30;
+        const t = (f - 5) / 95;
+        const base = 3 + 27 * t;
+        const wave = Math.sin(f * 0.55) * 1.35 + Math.sin(f * 0.17 + 1.1) * 0.9;
+        return Math.max(3, Math.min(30, Math.round(base + wave)));
+      }
+
+      function turretRoomCapacity(room) {
+        const area = Math.max(1, (room.w || 4) * (room.h || 4));
+        if (area >= 90) return 3;
+        if (area >= 56) return 2;
+        return 1;
+      }
+
+      function distributeTurretsAcrossRooms(roomPool, totalTurrets) {
+        const plan = roomPool.map(room => ({ room, count: 0, cap: turretRoomCapacity(room) }));
+        if (!plan.length || totalTurrets <= 0) return plan;
+
+        const preferredOrder = plan
+          .slice()
+          .sort((a, b) => ((b.room.w * b.room.h) - (a.room.w * a.room.h)));
+
+        let remaining = totalTurrets;
+        let cursor = 0;
+        while (remaining > 0) {
+          const slot = preferredOrder[cursor % preferredOrder.length];
+          if (slot.count < slot.cap) {
+            slot.count++;
+            remaining--;
+          }
+          cursor++;
+          if (cursor > preferredOrder.length * 12) {
+            const expandable = preferredOrder.find(s => s.count < Math.max(1, s.cap + 1));
+            if (!expandable) break;
+            expandable.count++;
+            remaining--;
+          }
+        }
+        return plan;
       }
 
       function turretPatternPoints(room, count, encounterTheme) {
@@ -2040,8 +2074,8 @@ function clearStairsLandingZone(dungeon){
         return patterns[0];
       }
 
-      function spawnTurretGroupInRoom(room, floor, encounterTheme) {
-        const count = turretGroupCountForFloor(floor, encounterTheme);
+      function spawnTurretGroupInRoom(room, floor, encounterTheme, forcedCount = null) {
+        const count = Math.max(1, Math.min(5, forcedCount ?? 1));
         const points = turretPatternPoints(room, count, encounterTheme);
         const centerX = room.cx * TILE;
         const centerY = room.cy * TILE;
@@ -2062,6 +2096,20 @@ function clearStairsLandingZone(dungeon){
           const ty = clamp(centerY, minY, maxY);
           if (isFarFromStartSpawn(tx, ty, state.dungeon.start)) enemies.push(makeFloorTurretEnemy(tx, ty, floor));
         }
+      }
+
+      function spawnTurretGroupsForFloor(roomPool, floor, encounterTheme) {
+        const totalTurrets = floorTurretTargetCount(floor);
+        if (totalTurrets <= 0 || !roomPool.length) return 0;
+        const planned = distributeTurretsAcrossRooms(roomPool, totalTurrets);
+        let placedTotal = 0;
+        for (const slot of planned) {
+          if (!slot.count || !slot.room) continue;
+          const before = enemies.length;
+          spawnTurretGroupInRoom(slot.room, floor, encounterTheme, slot.count);
+          placedTotal += Math.max(0, enemies.length - before);
+        }
+        return placedTotal;
       }
 
       // 各フロアで出現する7種の通常敵を最低1体ずつ配置して、顔ぶれを保証する。
@@ -2089,10 +2137,7 @@ function clearStairsLandingZone(dungeon){
 
         for (let i = 0; i < localCount; i++) addEnemy(room);
 
-        if (state.floor >= 5 && (encounterTheme === 'sentries' || Math.random() < (0.16 + Math.min(0.22, state.floor * 0.008) * waveScale))) {
-          // 砲台は5面以降に出現。深い階層やテーマに応じて、単体だけでなく複数の編隊でも配置する。
-          spawnTurretGroupInRoom(room, state.floor, encounterTheme);
-        }
+        // 砲台はフロア全体の総台数を後でまとめて配る。
 
         if (encounterTheme === 'nest' || Math.random() < (0.14 + state.floor * 0.012) * waveScale) {
           const sx = room.cx*TILE, sy = room.cy*TILE;
@@ -2111,6 +2156,8 @@ function clearStairsLandingZone(dungeon){
           });
         }
       }
+
+      spawnTurretGroupsForFloor(roomPool, state.floor, encounterTheme);
 
       if (state.floor >= 4 && roomPool.length) {
         const miniCount = state.floor >= 18 ? 2 : 1;
@@ -3073,8 +3120,13 @@ function clearStairsLandingZone(dungeon){
             damagePlayer(dToPlayer, e.poison ? rand(5,20) : 0);
           }
           const n = norm(e.x-p.x, e.y-p.y);
-          p.vx -= n.x*8; p.vy -= n.y*8;
-          e.vx += n.x*8; e.vy += n.y*8;
+          const playerMass = Math.max(1, p.mass || 2);
+          const enemyMass = Math.max(1, e.mass || Math.max(1, (e.r || 14) / 8));
+          const sizeRatio = clamp((e.r || 14) / Math.max(8, p.r || 13), 0.75, 2.8);
+          const playerKnock = (5.5 + (e.r || 14) * 0.55) * sizeRatio * clamp(enemyMass / playerMass, 0.85, 2.5);
+          const enemyRecoil = Math.max(2.5, playerKnock * 0.28 / Math.max(1, enemyMass * 0.35));
+          p.vx -= n.x * playerKnock; p.vy -= n.y * playerKnock;
+          e.vx += n.x * enemyRecoil; e.vy += n.y * enemyRecoil;
         }
       }
 
