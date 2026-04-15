@@ -1,4 +1,4 @@
-<!-- ver. 0.5.50 -->
+<!-- ver. 0.5.61-alt -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.50</div>
+  <div id="versionTag">ver. 0.5.61-alt</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1013,6 +1013,49 @@
       }
     }
 
+
+    function roomFootprintPadding(shape){
+      if(shape==='diamond') return 3;
+      if(shape==='ellipse') return 2;
+      if(shape==='octagon') return 2;
+      return 2;
+    }
+
+    function roomBounds(room, extra=0){
+      const pad = roomFootprintPadding(room.shape) + extra;
+      return {
+        left: room.x - pad,
+        top: room.y - pad,
+        right: room.x + room.w - 1 + pad,
+        bottom: room.y + room.h - 1 + pad,
+      };
+    }
+
+    function roomsOverlap(a, b, extra=0){
+      const ra = roomBounds(a, extra);
+      const rb = roomBounds(b, extra);
+      return !(ra.right < rb.left || ra.left > rb.right || ra.bottom < rb.top || ra.top > rb.bottom);
+    }
+
+    function canPlaceRoom(room, rooms, extra=0){
+      for(const other of rooms){
+        if(roomsOverlap(room, other, extra)) return false;
+      }
+      return true;
+    }
+
+    function makeRoom(x, y, w, h, shape='rect'){
+      return {x, y, w, h, cx:Math.floor(x + w/2), cy:Math.floor(y + h/2), shape};
+    }
+
+    function tryPlaceRoom(rooms, makeCandidate, attempts=40, extra=0){
+      for(let attempt=0; attempt<attempts; attempt++){
+        const room = makeCandidate(attempt);
+        if(room && canPlaceRoom(room, rooms, extra)) return room;
+      }
+      return null;
+    }
+
     function scatterDungeonProps(tiles, rooms, startRoom, stairsRoom){
       const objects = [];
       for (const room of rooms.slice(1)) {
@@ -1050,7 +1093,14 @@
         const rh = randi(5, 10);
         const rx = randi(2, w-rw-3);
         const ry = randi(2, h-rh-3);
-        const room = {x:rx,y:ry,w:rw,h:rh,cx:Math.floor(rx+rw/2),cy:Math.floor(ry+rh/2),shape:shapes[(i + floor) % shapes.length]};
+        const room = tryPlaceRoom(rooms, () => {
+          const rrw = randi(5, 11);
+          const rrh = randi(5, 10);
+          const rrx = randi(2, w-rrw-3);
+          const rry = randi(2, h-rrh-3);
+          return makeRoom(rrx, rry, rrw, rrh, shapes[(i + floor) % shapes.length]);
+        }, 64, 0);
+        if(!room) continue;
         rooms.push(room);
         carveBlobRoom(tiles, room, room.shape);
         if (i>0){
@@ -1074,7 +1124,16 @@
         const rxBase = Math.floor(((i + 1) / (roomCount + 1)) * (w - rw - 6)) + randi(-3,3);
         const rx = clamp(rxBase, 2, w-rw-3);
         const ry = clamp(laneY + randi(-4,4), 2, h-rh-3);
-        const room = {x:rx,y:ry,w:rw,h:rh,cx:Math.floor(rx+rw/2),cy:Math.floor(ry+rh/2),shape: i%3===0 ? 'diamond' : 'rect'};
+        const room = tryPlaceRoom(rooms, () => {
+          const rrw = randi(6, 12);
+          const rrh = randi(5, 9);
+          const laneY2 = Math.floor(((i + 1) / (roomCount + 1)) * (h - rrh - 6)) + 3;
+          const rxBase2 = Math.floor(((i + 1) / (roomCount + 1)) * (w - rrw - 6)) + randi(-3,3);
+          const rrx = clamp(rxBase2, 2, w-rrw-3);
+          const rry = clamp(laneY2 + randi(-4,4), 2, h-rrh-3);
+          return makeRoom(rrx, rry, rrw, rrh, i%3===0 ? 'diamond' : 'rect');
+        }, 48, 0);
+        if(!room) continue;
         rooms.push(room);
         carveBlobRoom(tiles, room, room.shape);
         if(prev){
@@ -1516,7 +1575,12 @@
       for(let i=0;i<9;i++){
         const rw = randi(5, 10), rh = randi(5, 9);
         const rx = randi(2, w-rw-3), ry = randi(2, h-rh-3);
-        const room = {x:rx,y:ry,w:rw,h:rh,cx:Math.floor(rx+rw/2),cy:Math.floor(ry+rh/2),shape:Math.random()<0.6?'ellipse':'rect'};
+        const room = tryPlaceRoom(rooms, () => {
+          const rrw = randi(5, 10), rrh = randi(5, 9);
+          const rrx = randi(2, w-rrw-3), rry = randi(2, h-rrh-3);
+          return makeRoom(rrx, rry, rrw, rrh, Math.random()<0.6?'ellipse':'rect');
+        }, 56, 0);
+        if(!room) continue;
         carveBlobRoom(tiles, room, room.shape); rooms.push(room);
       }
       rooms.push(stairsRoom);
@@ -1541,7 +1605,17 @@
         if(edge===1){ rx=w-rw-7; ry=randi(6,h-rh-7); }
         if(edge===2){ rx=randi(6,w-rw-7); ry=h-rh-7; }
         if(edge===3){ rx=6; ry=randi(6,h-rh-7); }
-        const room={x:rx,y:ry,w:rw,h:rh,cx:Math.floor(rx+rw/2),cy:Math.floor(ry+rh/2),shape:(i%3===0?'diamond':'rect')};
+        const room = tryPlaceRoom(rooms, () => {
+          const rrw=randi(5,9), rrh=randi(5,8);
+          const edge2 = i%4;
+          let rrx=6, rry=6;
+          if(edge2===0){ rrx=randi(6,w-rrw-7); rry=6; }
+          if(edge2===1){ rrx=w-rrw-7; rry=randi(6,h-rrh-7); }
+          if(edge2===2){ rrx=randi(6,w-rrw-7); rry=h-rrh-7; }
+          if(edge2===3){ rrx=6; rry=randi(6,h-rrh-7); }
+          return makeRoom(rrx, rry, rrw, rrh, (i%3===0?'diamond':'rect'));
+        }, 40, 0);
+        if(!room) continue;
         carveBlobRoom(tiles, room, room.shape);
         rooms.push(room);
       }
@@ -1564,9 +1638,15 @@
         const rcx = clamp(Math.floor(cx + Math.cos(ang) * dist), 6, w-7);
         const rcy = clamp(Math.floor(cy + Math.sin(ang) * dist), 6, h-7);
         const rw = randi(5,9), rh = randi(5,9);
-        const room = {x:rcx-Math.floor(rw/2), y:rcy-Math.floor(rh/2), w:rw, h:rh, cx:rcx, cy:rcy, shape:i%2?'ellipse':'diamond'};
+        const room = tryPlaceRoom(rooms, () => {
+          const rrw = randi(5,9), rrh = randi(5,9);
+          const rrcx = clamp(Math.floor(cx + Math.cos(ang) * (Math.min(w,h) * 0.28 + randi(-2,3))), 6, w-7);
+          const rrcy = clamp(Math.floor(cy + Math.sin(ang) * (Math.min(w,h) * 0.28 + randi(-2,3))), 6, h-7);
+          return {x:rrcx-Math.floor(rrw/2), y:rrcy-Math.floor(rrh/2), w:rrw, h:rrh, cx:rrcx, cy:rrcy, shape:i%2?'ellipse':'diamond'};
+        }, 36, 0);
+        if(!room) continue;
         carveBlobRoom(tiles, room, room.shape);
-        carveWidePath(tiles, cx, cy, rcx, rcy, 1 + (i%3===0), 0.08);
+        carveWidePath(tiles, cx, cy, room.cx, room.cy, 1 + (i%3===0), 0.08);
         rooms.push(room);
       }
       const startRoom = rooms[1] || hub;
