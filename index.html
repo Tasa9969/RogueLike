@@ -1,4 +1,4 @@
-<!-- ver. 0.5.61-alt -->
+<!-- ver. 0.5.62-wide -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.61-alt</div>
+  <div id="versionTag">ver. 0.5.62-wide</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1015,10 +1015,10 @@
 
 
     function roomFootprintPadding(shape){
-      if(shape==='diamond') return 3;
-      if(shape==='ellipse') return 2;
-      if(shape==='octagon') return 2;
-      return 2;
+      if(shape==='diamond') return 6;
+      if(shape==='ellipse') return 4;
+      if(shape==='octagon') return 4;
+      return 4;
     }
 
     function roomBounds(room, extra=0){
@@ -1099,7 +1099,7 @@
           const rrx = randi(2, w-rrw-3);
           const rry = randi(2, h-rrh-3);
           return makeRoom(rrx, rry, rrw, rrh, shapes[(i + floor) % shapes.length]);
-        }, 64, 0);
+        }, 96, 2);
         if(!room) continue;
         rooms.push(room);
         carveBlobRoom(tiles, room, room.shape);
@@ -1132,7 +1132,7 @@
           const rrx = clamp(rxBase2, 2, w-rrw-3);
           const rry = clamp(laneY2 + randi(-4,4), 2, h-rrh-3);
           return makeRoom(rrx, rry, rrw, rrh, i%3===0 ? 'diamond' : 'rect');
-        }, 48, 0);
+        }, 72, 2);
         if(!room) continue;
         rooms.push(room);
         carveBlobRoom(tiles, room, room.shape);
