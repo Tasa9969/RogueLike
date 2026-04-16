@@ -1,4 +1,4 @@
-<!-- ver. 0.5.81-varied-branch -->
+<!-- ver. 0.5.82-roomscale-obstacles -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.81-varied-branch</div>
+  <div id="versionTag">ver. 0.5.82-roomscale-obstacles</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1070,14 +1070,17 @@
           const oy = randi(room.y+1, room.y+room.h-2);
           if ((Math.abs(ox-startRoom.cx)+Math.abs(oy-startRoom.cy)<3) || (Math.abs(ox-stairsRoom.cx)+Math.abs(oy-stairsRoom.cy)<3)) continue;
           if (tiles[oy][ox]===0) {
+            const fragile = Math.random() < 0.28;
             objects.push({
               x: ox*TILE + TILE*0.1,
               y: oy*TILE + TILE*0.1,
               w: TILE*(Math.random()<0.5?0.8:1.4),
               h: TILE*(Math.random()<0.5?0.8:1.4),
-              breakable: Math.random()<0.28,
-              color: Math.random()<0.28 ? '#8f7048' : '#58616b',
-              hp: 4,
+              breakable: true,
+              sturdy: !fragile,
+              maxHp: fragile ? 1 : 10,
+              hp: fragile ? 1 : 10,
+              color: fragile ? '#8f7048' : '#58616b',
               alpha:1,
               dead:false,
             });
@@ -1310,19 +1313,29 @@
         return isHub ? 'star8' : 'pentagon';
       }
 
+      function roomSideCapForFloor(depth){
+        const capped = Math.min(30, Math.max(1, depth|0));
+        const t30 = (capped - 1) / 29;
+        const growth = 3 + 27 * t30;
+        const wave = Math.sin(capped * 0.43 - 0.7) * (1.1 + t30 * 1.6) + Math.sin(capped * 0.17 + 1.2) * (0.6 + t30 * 1.1);
+        return clamp(growth + wave, 3, 30);
+      }
+
       function buildNodeAt(tx, ty, isHub=false){
-        const sizeBase = 4.2 + progress * 4.9 + (isHub ? rand(0.8, 1.8) : 0);
-        const sizeSwing = rand(-1.9, 2.6) + rand(-1.4, 1.7) + (Math.random() < 0.18 ? rand(1.0, 3.4) : 0);
-        const aspect = rand(0.58, 1.9) * (Math.random() < 0.16 ? rand(0.68, 1.42) : 1);
-        const widthBase = sizeBase * aspect + sizeSwing;
-        const heightBase = sizeBase / aspect + rand(-1.8, 2.2) + (Math.random() < 0.14 ? rand(0.6, 2.3) : 0);
+        const cap = roomSideCapForFloor(depth);
+        const widthCap = Math.max(3, cap + (isHub ? rand(0.0, Math.min(4.0, cap * 0.18)) : 0));
+        const heightCap = Math.max(3, cap + (isHub ? rand(0.0, Math.min(4.0, cap * 0.18)) : 0));
+        const widthBase = rand(3, widthCap);
+        const heightBase = rand(3, heightCap);
+        const waveStretch = 1 + Math.sin(depth * 0.31 + tx * 0.07 + ty * 0.05) * 0.12;
+        const burstStretch = Math.random() < (0.08 + progress * 0.18) ? rand(0.82, 1.28 + progress * 0.22) : 1;
         const node = {
           tx: clampTile(tx, margin, w - margin - 1),
           ty: clampTile(ty, margin, h - margin - 1),
           shape: roomShapeForDepth(isHub),
           rot: 0,
-          wTiles: Math.max(3.8, widthBase),
-          hTiles: Math.max(3.8, heightBase),
+          wTiles: clamp(widthBase * waveStretch * burstStretch, 3, Math.max(3, widthCap)),
+          hTiles: clamp(heightBase / waveStretch * (Math.random() < 0.5 ? burstStretch : 1), 3, Math.max(3, heightCap)),
         };
         if (node.shape === 'triangle' || node.shape === 'pentagon' || node.shape === 'hexagon' || node.shape === 'octagon' || node.shape === 'star8') {
           node.rot = rand(-Math.PI, Math.PI);
@@ -1429,8 +1442,8 @@
           cy: node.ty,
           x: Math.round(node.tx - node.wTiles * 0.5),
           y: Math.round(node.ty - node.hTiles * 0.5),
-          w: Math.max(4, Math.round(node.wTiles)),
-          h: Math.max(4, Math.round(node.hTiles))
+          w: Math.max(3, Math.round(node.wTiles)),
+          h: Math.max(3, Math.round(node.hTiles))
         };
       }
 
