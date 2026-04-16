@@ -1,4 +1,4 @@
-<!-- ver. 0.5.86-chest-contact-passive -->
+<!-- ver. 0.5.87-corridor-origin-debugd -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.86-chest-contact-passive</div>
+  <div id="versionTag">ver. 0.5.87-corridor-origin-debugd</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -543,6 +543,10 @@
     addEventListener('keydown', e => {
       const lower = e.key.toLowerCase();
       if (lower === 'r') init();
+      if ((e.key === 'D' || (lower === 'd' && e.shiftKey)) && !e.repeat && state) {
+        state.player.invincible = !state.player.invincible;
+        showOverlay(state.player.invincible ? 'DEBUG\nINVINCIBLE ON' : 'DEBUG\nINVINCIBLE OFF', { duration: 900 });
+      }
       if (lower === 'p' && state) {
         state.paused = !state.paused;
         showOverlay(state.paused ? 'PAUSE' : 'RESUME');
@@ -1465,6 +1469,65 @@
         return node;
       }
 
+      function nodeBoundaryDistance(node, dirx, diry){
+        const len = Math.hypot(dirx, diry) || 1;
+        const ux = dirx / len;
+        const uy = diry / len;
+        if (node.shape === 'rect' || node.shape === 'ellipse') {
+          const c = Math.cos(-(node.rot || 0));
+          const s = Math.sin(-(node.rot || 0));
+          const lx = ux * c - uy * s;
+          const ly = ux * s + uy * c;
+          const rx = Math.max(1.5, node.wTiles * 0.54);
+          const ry = Math.max(1.5, node.hTiles * 0.54);
+          if (node.shape === 'rect') {
+            const tx = Math.abs(lx) > 1e-6 ? rx / Math.abs(lx) : Infinity;
+            const ty = Math.abs(ly) > 1e-6 ? ry / Math.abs(ly) : Infinity;
+            return Math.min(tx, ty);
+          }
+          const denom = (lx * lx) / (rx * rx) + (ly * ly) / (ry * ry);
+          return denom > 1e-6 ? 1 / Math.sqrt(denom) : Math.max(rx, ry);
+        }
+        const pts = makeNodePolygon(node, 1.05);
+        let best = Infinity;
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i];
+          const b = pts[(i + 1) % pts.length];
+          const ax = a.x - node.tx;
+          const ay = a.y - node.ty;
+          const bx = b.x - node.tx;
+          const by = b.y - node.ty;
+          const ex = bx - ax;
+          const ey = by - ay;
+          const det = ux * (-ey) - uy * (-ex);
+          if (Math.abs(det) < 1e-6) continue;
+          const t = (ax * (-ey) - ay * (-ex)) / det;
+          const u = (ux * ay - uy * ax) / det;
+          if (t >= 0 && u >= 0 && u <= 1) best = Math.min(best, t);
+        }
+        if (Number.isFinite(best)) return best;
+        return Math.max(node.wTiles, node.hTiles) * 0.6;
+      }
+
+      function nodeBoundaryPoint(node, dirx, diry, outwardPad=0){
+        const dist = nodeBoundaryDistance(node, dirx, diry) + outwardPad;
+        const len = Math.hypot(dirx, diry) || 1;
+        const ux = dirx / len;
+        const uy = diry / len;
+        return { x: node.tx + ux * dist, y: node.ty + uy * dist };
+      }
+
+      function finalizeNodePlacement(node){
+        node.tx = clampTile(node.tx, margin, w - margin - 1);
+        node.ty = clampTile(node.ty, margin, h - margin - 1);
+        const center = tileCenter(node.tx, node.ty);
+        node.x = center.x;
+        node.y = center.y;
+        node.width = node.wTiles * TILE;
+        node.height = node.hTiles * TILE;
+        return node;
+      }
+
       function tryCreateBranchRoom(anchor){
         const axisDirs = [
           {x:1, y:0},{x:-1, y:0},{x:0, y:1},{x:0, y:-1},
@@ -1473,38 +1536,39 @@
         ];
         for(let attempt=0; attempt<28; attempt++){
           const dir = axisDirs[randi(0, axisDirs.length - 1)];
+          const len = Math.hypot(dir.x, dir.y) || 1;
+          const ux = dir.x / len;
+          const uy = dir.y / len;
           const stretchRoll = Math.random();
           const hallLen = stretchRoll < 0.18
-            ? rand(3.0, 5.5 + progress * 5.0)
+            ? rand(3.5, 6.5 + progress * 6.0)
             : stretchRoll < 0.78
-              ? rand(5.0, 11.5 + progress * 11.5)
-              : rand(10.0, 19.0 + progress * 15.0);
+              ? rand(6.0, 13.5 + progress * 13.0)
+              : rand(11.0, 22.0 + progress * 18.0);
           const sideJitter = rand(-2.8, 2.8) * (Math.random() < 0.55 ? 1 : 0.35);
-          const depthJitter = rand(-2.1, 2.1);
           const isHub = Math.random() < 0.12 + progress * 0.16;
-          const roughTx = anchor.tx + dir.x * hallLen + (-dir.y) * sideJitter + dir.x * depthJitter;
-          const roughTy = anchor.ty + dir.y * hallLen + ( dir.x) * sideJitter + dir.y * depthJitter;
-          const node = buildNodeAt(roughTx + rand(-2.4, 2.4), roughTy + rand(-2.4, 2.4), isHub);
-          const targetDirLen = Math.hypot(node.tx - anchor.tx, node.ty - anchor.ty) || 1;
-          const ux = (node.tx - anchor.tx) / targetDirLen;
-          const uy = (node.ty - anchor.ty) / targetDirLen;
-          const anchorExit = {
-            x: anchor.tx + ux * Math.max(1.2, Math.min(anchor.wTiles, anchor.hTiles) * 0.28),
-            y: anchor.ty + uy * Math.max(1.2, Math.min(anchor.wTiles, anchor.hTiles) * 0.28),
+          const anchorExit = nodeBoundaryPoint(anchor, ux, uy, 0.55);
+          const hallEnd = {
+            x: anchorExit.x + ux * hallLen + (-uy) * sideJitter,
+            y: anchorExit.y + uy * hallLen + ( ux) * sideJitter,
           };
-          const nodeEntry = {
-            x: node.tx - ux * Math.max(1.2, Math.min(node.wTiles, node.hTiles) * 0.28),
-            y: node.ty - uy * Math.max(1.2, Math.min(node.wTiles, node.hTiles) * 0.28),
-          };
+          const node = buildNodeAt(hallEnd.x + ux * 4, hallEnd.y + uy * 4, isHub);
+          const entryInset = nodeBoundaryDistance(node, -ux, -uy);
+          node.tx = hallEnd.x + ux * entryInset + rand(-1.2, 1.2);
+          node.ty = hallEnd.y + uy * entryInset + rand(-1.2, 1.2);
+          finalizeNodePlacement(node);
+
+          const corridorStart = nodeBoundaryPoint(anchor, ux, uy, 0.55);
+          const corridorEnd = nodeBoundaryPoint(node, -ux, -uy, 0.2);
           const hallRadiusTiles = 1.05;
           if (!canPlaceNode(node)) continue;
-          if (segmentHitsExistingStructure(anchorExit, nodeEntry, hallRadiusTiles, anchor, node)) continue;
+          if (segmentHitsExistingStructure(corridorStart, corridorEnd, hallRadiusTiles, anchor, node)) continue;
 
           const seg = {
-            x1: (anchorExit.x + 0.5) * TILE,
-            y1: (anchorExit.y + 0.5) * TILE,
-            x2: (nodeEntry.x + 0.5) * TILE,
-            y2: (nodeEntry.y + 0.5) * TILE,
+            x1: (corridorStart.x + 0.5) * TILE,
+            y1: (corridorStart.y + 0.5) * TILE,
+            x2: (corridorEnd.x + 0.5) * TILE,
+            y2: (corridorEnd.y + 0.5) * TILE,
             thickness: TILE * 2.1,
           };
 
@@ -3768,6 +3832,7 @@ function clearStairsLandingZone(dungeon){
 
     function damagePlayer(dmg, poisonSec){
       const p = state.player;
+      if (p.invincible) return;
       p.hp -= dmg;
       p.lastDamageAt = state.t;
       applyPlayerCameraShock(Math.max(3.8, 2.4 + dmg * 0.45));
@@ -4605,6 +4670,7 @@ function clearStairsLandingZone(dungeon){
         <span class="badge">剣pt: ${p.sword ? (p.sword.points || 0) : 0}</span>
         <span class="badge">魔法特性: ${p.bow ? (p.bow.label || 'カッパー') : 'なし'}</span>
         <span class="badge">魔法pt: ${p.bow ? (p.bow.effectivePoints || 0) : 0}</span>
+        ${p.invincible ? '<span class="badge">DEBUG: INVINCIBLE</span>' : ''}
       `;
     }
 
