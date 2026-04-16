@@ -1,4 +1,4 @@
-<!-- ver. 0.5.77-corridor-safe -->
+<!-- ver. 0.5.78-room-gap -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.77-corridor-safe</div>
+  <div id="versionTag">ver. 0.5.78-room-gap</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -520,6 +520,7 @@
     // ゲームバランス調整パラメータ
     // ------------------------------
     const TILE = 32;                 // 1マスのピクセルサイズ
+    const ROOM_SEPARATION_TILES = 0.75; // 部屋同士を自機1体分ほど離す
     const CONTACT_INTERVAL = 0.2;    // 接触ダメージの再発生間隔(秒)
     const FLOOR_HEAL_RATIO = 0.25;
     const FLOOR_SAFE_SPAWN_RADIUS_MIN = 140; // 最低安全半径（前回の1/3）
@@ -1103,7 +1104,7 @@
           const rrx = randi(2, w-rrw-3);
           const rry = randi(2, h-rrh-3);
           return makeRoom(rrx, rry, rrw, rrh, shapes[(i + floor) % shapes.length]);
-        }, 96, 2);
+        }, 96, 2 + ROOM_SEPARATION_TILES);
         if(!room) continue;
         rooms.push(room);
         carveBlobRoom(tiles, room, room.shape);
@@ -1136,7 +1137,7 @@
           const rrx = clamp(rxBase2, 2, w-rrw-3);
           const rry = clamp(laneY2 + randi(-4,4), 2, h-rrh-3);
           return makeRoom(rrx, rry, rrw, rrh, i%3===0 ? 'diamond' : 'rect');
-        }, 72, 2);
+        }, 72, 2 + ROOM_SEPARATION_TILES);
         if(!room) continue;
         rooms.push(room);
         carveBlobRoom(tiles, room, room.shape);
@@ -1417,9 +1418,10 @@
         };
       }
       function overlapsExistingNodes(node, extraPad=0.9){
-        const a = nodeLooseExtents(node, extraPad);
+        const pad = extraPad + ROOM_SEPARATION_TILES;
+        const a = nodeLooseExtents(node, pad);
         for (const other of mazeNodes) {
-          const b = nodeLooseExtents(other, extraPad);
+          const b = nodeLooseExtents(other, pad);
           const dx = Math.abs(node.tx - other.tx);
           const dy = Math.abs(node.ty - other.ty);
           if (dx < (a.ex + b.ex) && dy < (a.ey + b.ey)) return true;
@@ -1761,7 +1763,7 @@
           const rrw = randi(5, 10), rrh = randi(5, 9);
           const rrx = randi(2, w-rrw-3), rry = randi(2, h-rrh-3);
           return makeRoom(rrx, rry, rrw, rrh, Math.random()<0.6?'ellipse':'rect');
-        }, 56, 0);
+        }, 56, ROOM_SEPARATION_TILES);
         if(!room) continue;
         carveBlobRoom(tiles, room, room.shape); rooms.push(room);
       }
@@ -1796,7 +1798,7 @@
           if(edge2===2){ rrx=randi(6,w-rrw-7); rry=h-rrh-7; }
           if(edge2===3){ rrx=6; rry=randi(6,h-rrh-7); }
           return makeRoom(rrx, rry, rrw, rrh, (i%3===0?'diamond':'rect'));
-        }, 40, 0);
+        }, 40, ROOM_SEPARATION_TILES);
         if(!room) continue;
         carveBlobRoom(tiles, room, room.shape);
         rooms.push(room);
@@ -1825,7 +1827,7 @@
           const rrcx = clamp(Math.floor(cx + Math.cos(ang) * (Math.min(w,h) * 0.28 + randi(-2,3))), 6, w-7);
           const rrcy = clamp(Math.floor(cy + Math.sin(ang) * (Math.min(w,h) * 0.28 + randi(-2,3))), 6, h-7);
           return {x:rrcx-Math.floor(rrw/2), y:rrcy-Math.floor(rrh/2), w:rrw, h:rrh, cx:rrcx, cy:rrcy, shape:i%2?'ellipse':'diamond'};
-        }, 36, 0);
+        }, 36, ROOM_SEPARATION_TILES);
         if(!room) continue;
         carveBlobRoom(tiles, room, room.shape);
         carveWidePath(tiles, cx, cy, room.cx, room.cy, 1 + (i%3===0), 0.08);
