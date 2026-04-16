@@ -1,4 +1,4 @@
-<!-- ver. 0.5.78-room-gap -->
+<!-- ver. 0.5.79-maze-safe -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.78-room-gap</div>
+  <div id="versionTag">ver. 0.5.79-maze-safe</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1696,45 +1696,103 @@
         for (const seg of mazeSegments) carveSegment(seg);
       }
 
-      function pruneDisconnectedNodes(){
-        for (let i = mazeNodes.length - 1; i >= 1; i--) {
-          if (nodeDegree(mazeNodes[i]) > 0) continue;
-          mazeNodes.splice(i, 1);
-          rooms.splice(i, 1);
+      function roomBoundsFromNode(node){
+        return {
+          left: Math.max(1, Math.floor(node.tx - node.wTiles * 0.5 - 1)),
+          right: Math.min(w - 2, Math.ceil(node.tx + node.wTiles * 0.5 + 1)),
+          top: Math.max(1, Math.floor(node.ty - node.hTiles * 0.5 - 1)),
+          bottom: Math.min(h - 2, Math.ceil(node.ty + node.hTiles * 0.5 + 1)),
+        };
+      }
+
+      function nodeContainsTile(node, tx, ty){
+        const wx = (tx + 0.5) * TILE;
+        const wy = (ty + 0.5) * TILE;
+        return pointInsideNodeExpanded(wx, wy, node, 0.05);
+      }
+
+      function nodeHasReachableInterior(node, reachable){
+        const b = roomBoundsFromNode(node);
+        for (let ty = b.top; ty <= b.bottom; ty++) {
+          for (let tx = b.left; tx <= b.right; tx++) {
+            if (!reachable.has(`${tx},${ty}`)) continue;
+            if (!isWalkableTileValue(tiles[ty]?.[tx])) continue;
+            if (nodeContainsTile(node, tx, ty)) return true;
+          }
         }
+        return false;
+      }
+
+      function removeNodeAndSegments(node){
+        const idx = mazeNodes.indexOf(node);
+        if (idx <= 0) return false;
+        mazeNodes.splice(idx, 1);
+        rooms.splice(idx, 1);
+        for (let i = mazeSegments.length - 1; i >= 0; i--) {
+          const seg = mazeSegments[i];
+          const aHit = Math.abs(seg.x1 - node.x) < 0.1 && Math.abs(seg.y1 - node.y) < 0.1;
+          const bHit = Math.abs(seg.x2 - node.x) < 0.1 && Math.abs(seg.y2 - node.y) < 0.1;
+          if (aHit || bHit) mazeSegments.splice(i, 1);
+        }
+        return true;
+      }
+
+      function pruneUnsafeNodes(){
+        let changed = false;
+        let guard = 0;
+        do {
+          changed = false;
+          rebuildVectorMazeTiles();
+          const reachable = floodReachableTiles(tiles, Math.round(startNode.tx), Math.round(startNode.ty));
+          for (let i = mazeNodes.length - 1; i >= 1; i--) {
+            const node = mazeNodes[i];
+            const deg = nodeDegree(node);
+            const ok = deg > 0 && nodeHasReachableInterior(node, reachable);
+            if (ok) continue;
+            removeNodeAndSegments(node);
+            changed = true;
+          }
+          guard++;
+        } while (changed && guard < 12);
         rebuildVectorMazeTiles();
       }
 
       function tryAddConnectedReplacement(){
-        const anchors = mazeNodes.filter(n => nodeDegree(n) > 0 || n === mazeNodes[0]);
+        const anchors = mazeNodes.filter(n => n === mazeNodes[0] || (nodeDegree(n) > 0));
         if (!anchors.length) return false;
-        for (let attempt = 0; attempt < 80; attempt++) {
+        for (let attempt = 0; attempt < 120; attempt++) {
           const anchor = anchors[randi(0, anchors.length - 1)];
           const dir = rand(-Math.PI, Math.PI);
           const len = rand(5, 12 + progress * 8 + avant * 8);
           const isHub = Math.random() < 0.12 + avant * 0.12;
+          const prevNodeCount = mazeNodes.length;
+          const prevRoomCount = rooms.length;
+          const prevSegmentCount = mazeSegments.length;
           const candidate = makeNode(anchor.tx + Math.cos(dir) * len, anchor.ty + Math.sin(dir) * len, isHub);
-          const beforeSegments = mazeSegments.length;
           const mult = Math.random() < 0.35 ? 1 + Math.floor(Math.random() * 3) : null;
-          if (addSegment(anchor, candidate, mult)) return true;
-          mazeSegments.length = beforeSegments;
-          if (mazeNodes[mazeNodes.length - 1] === candidate) {
-            mazeNodes.pop();
-            rooms.pop();
+          const connected = !!candidate && addSegment(anchor, candidate, mult);
+          if (connected) {
+            rebuildVectorMazeTiles();
+            const reachable = floodReachableTiles(tiles, Math.round(startNode.tx), Math.round(startNode.ty));
+            if (nodeDegree(candidate) > 0 && nodeHasReachableInterior(candidate, reachable)) return true;
           }
+          mazeSegments.length = prevSegmentCount;
+          mazeNodes.length = prevNodeCount;
+          rooms.length = prevRoomCount;
           rebuildVectorMazeTiles();
         }
         return false;
       }
 
-      pruneDisconnectedNodes();
+      pruneUnsafeNodes();
       const requiredRooms = Math.max(2, targetNodes);
       let refillGuard = 0;
-      while (mazeNodes.length < requiredRooms && refillGuard < requiredRooms * 12) {
+      while (mazeNodes.length < requiredRooms && refillGuard < requiredRooms * 18) {
         if (!tryAddConnectedReplacement()) break;
+        pruneUnsafeNodes();
         refillGuard++;
       }
-      pruneDisconnectedNodes();
+      pruneUnsafeNodes();
 
       return {tiles, rooms, mazeNodes, mazeSegments, layout:mode, vectorMaze:true};
     }
