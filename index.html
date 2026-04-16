@@ -1,4 +1,4 @@
-<!-- ver. 0.5.72-corridor-safe -->
+<!-- ver. 0.5.73-corridor-safe -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.72-corridor-safe</div>
+  <div id="versionTag">ver. 0.5.73-corridor-safe</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2817,6 +2817,7 @@ function clearStairsLandingZone(dungeon){
         p.hp = Math.max(0, p.hp - 1);
         p.poisonTickAt = state.t + 1.0;
         p.lastDamageAt = state.t;
+        applyPlayerCameraShock(2.2);
       }
       if (state.t - p.lastDamageAt > 2 && !isNearCombat()) {
         if (!p.lastRegen || state.t - p.lastRegen > 5){
@@ -3509,6 +3510,22 @@ function clearStairsLandingZone(dungeon){
       if (p.sword && !p.sword.permanent) {
         p.sword.durability--;
         if (p.sword.durability <= 0) p.sword = makeWeapon('sword', 'wood');
+      }
+    }
+
+    function applyPlayerCameraShock(power = 4.5, angle = null){
+      const p = state.player;
+      if (!p) return;
+      const shockAngle = angle == null ? Math.random() * Math.PI * 2 : angle;
+      const shockPower = Math.max(0, power);
+      p.cameraKickX += Math.cos(shockAngle) * shockPower;
+      p.cameraKickY += Math.sin(shockAngle) * shockPower;
+      const cameraKickLen = Math.hypot(p.cameraKickX, p.cameraKickY);
+      const maxCameraKick = 10;
+      if (cameraKickLen > maxCameraKick) {
+        const scale = maxCameraKick / cameraKickLen;
+        p.cameraKickX *= scale;
+        p.cameraKickY *= scale;
       }
     }
 
