@@ -1,4 +1,4 @@
-<!-- ver. 0.5.80-branch-safe -->
+<!-- ver. 0.5.81-varied-branch -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.80-branch-safe</div>
+  <div id="versionTag">ver. 0.5.81-varied-branch</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1163,6 +1163,7 @@
       const roomPlanBase = 3 + progress * 97;
       const roomPlanWave = Math.sin(depth * 0.23 - 0.7) * 5 + Math.sin(depth * 0.071 + 1.4) * 2.5;
       const plannedRooms = Math.max(3, Math.min(100, Math.round(roomPlanBase + roomPlanWave)));
+      const guaranteedRooms = 2;
 
       function tileCenter(tx, ty){
         return {x:(tx + 0.5) * TILE, y:(ty + 0.5) * TILE};
@@ -1310,15 +1311,18 @@
       }
 
       function buildNodeAt(tx, ty, isHub=false){
-        const sizeBase = 4.6 + progress * 4.7 + (isHub ? 0.7 : 0);
-        const aspect = rand(0.75, 1.45);
+        const sizeBase = 4.2 + progress * 4.9 + (isHub ? rand(0.8, 1.8) : 0);
+        const sizeSwing = rand(-1.9, 2.6) + rand(-1.4, 1.7) + (Math.random() < 0.18 ? rand(1.0, 3.4) : 0);
+        const aspect = rand(0.58, 1.9) * (Math.random() < 0.16 ? rand(0.68, 1.42) : 1);
+        const widthBase = sizeBase * aspect + sizeSwing;
+        const heightBase = sizeBase / aspect + rand(-1.8, 2.2) + (Math.random() < 0.14 ? rand(0.6, 2.3) : 0);
         const node = {
           tx: clampTile(tx, margin, w - margin - 1),
           ty: clampTile(ty, margin, h - margin - 1),
           shape: roomShapeForDepth(isHub),
           rot: 0,
-          wTiles: Math.max(4, sizeBase * aspect + rand(-1.0, 1.2)),
-          hTiles: Math.max(4, sizeBase / aspect + rand(-1.0, 1.2)),
+          wTiles: Math.max(3.8, widthBase),
+          hTiles: Math.max(3.8, heightBase),
         };
         if (node.shape === 'triangle' || node.shape === 'pentagon' || node.shape === 'hexagon' || node.shape === 'octagon' || node.shape === 'star8') {
           node.rot = rand(-Math.PI, Math.PI);
@@ -1445,11 +1449,18 @@
         ];
         for(let attempt=0; attempt<28; attempt++){
           const dir = axisDirs[randi(0, axisDirs.length - 1)];
-          const hallLen = rand(5, 9 + progress * 10);
+          const stretchRoll = Math.random();
+          const hallLen = stretchRoll < 0.18
+            ? rand(3.0, 5.5 + progress * 5.0)
+            : stretchRoll < 0.78
+              ? rand(5.0, 11.5 + progress * 11.5)
+              : rand(10.0, 19.0 + progress * 15.0);
+          const sideJitter = rand(-2.8, 2.8) * (Math.random() < 0.55 ? 1 : 0.35);
+          const depthJitter = rand(-2.1, 2.1);
           const isHub = Math.random() < 0.12 + progress * 0.16;
-          const roughTx = anchor.tx + dir.x * hallLen;
-          const roughTy = anchor.ty + dir.y * hallLen;
-          const node = buildNodeAt(roughTx + rand(-1.5, 1.5), roughTy + rand(-1.5, 1.5), isHub);
+          const roughTx = anchor.tx + dir.x * hallLen + (-dir.y) * sideJitter + dir.x * depthJitter;
+          const roughTy = anchor.ty + dir.y * hallLen + ( dir.x) * sideJitter + dir.y * depthJitter;
+          const node = buildNodeAt(roughTx + rand(-2.4, 2.4), roughTy + rand(-2.4, 2.4), isHub);
           const targetDirLen = Math.hypot(node.tx - anchor.tx, node.ty - anchor.ty) || 1;
           const ux = (node.tx - anchor.tx) / targetDirLen;
           const uy = (node.ty - anchor.ty) / targetDirLen;
@@ -1502,6 +1513,13 @@
         const anchor = mazeNodes[randi(0, mazeNodes.length - 1)];
         tryCreateBranchRoom(anchor);
         remainingAttempts--;
+      }
+
+      let guaranteePasses = 0;
+      while (mazeNodes.length < guaranteedRooms && guaranteePasses < 48){
+        const anchor = mazeNodes[randi(0, mazeNodes.length - 1)];
+        tryCreateBranchRoom(anchor);
+        guaranteePasses++;
       }
 
       rebuildVectorMazeTiles();
