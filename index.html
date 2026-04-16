@@ -1,4 +1,4 @@
-<!-- ver. 0.5.74-corridor-safe -->
+<!-- ver. 0.5.75-corridor-safe -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.74-corridor-safe</div>
+  <div id="versionTag">ver. 0.5.75-corridor-safe</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1510,15 +1510,47 @@
           }
         }
 
-        for (let gy = margin; gy < h - margin; gy += 2) {
-          for (let gx = margin; gx < w - margin; gx += 2) {
-            candidate = buildCandidate(gx, gy, 0.5);
-            if (!overlapsExistingNodes(candidate, 0.5)) return finalizeNode(candidate);
+        for (const scale of [0.5, 0.46, 0.42, 0.38]) {
+          for (let gy = margin; gy < h - margin; gy += 2) {
+            for (let gx = margin; gx < w - margin; gx += 2) {
+              candidate = buildCandidate(gx, gy, scale);
+              if (!overlapsExistingNodes(candidate, 0.45)) return finalizeNode(candidate);
+            }
+          }
+          for (let gy = margin; gy < h - margin; gy += 1) {
+            for (let gx = margin; gx < w - margin; gx += 1) {
+              candidate = buildCandidate(gx, gy, scale);
+              if (!overlapsExistingNodes(candidate, 0.4)) return finalizeNode(candidate);
+            }
           }
         }
 
-        candidate = buildCandidate(tx, ty, 0.5);
-        return finalizeNode(candidate);
+        let best = null;
+        let bestPenalty = Infinity;
+        for (const scale of [0.38, 0.34]) {
+          for (let gy = margin; gy < h - margin; gy += 1) {
+            for (let gx = margin; gx < w - margin; gx += 1) {
+              candidate = buildCandidate(gx, gy, scale);
+              let penalty = 0;
+              for (const other of mazeNodes) {
+                const dx = Math.abs(candidate.tx - other.tx);
+                const dy = Math.abs(candidate.ty - other.ty);
+                const needX = (candidate.wTiles + other.wTiles) * 0.55;
+                const needY = (candidate.hTiles + other.hTiles) * 0.55;
+                const overlapX = Math.max(0, needX - dx);
+                const overlapY = Math.max(0, needY - dy);
+                penalty += overlapX * overlapY;
+              }
+              if (penalty < bestPenalty) {
+                bestPenalty = penalty;
+                best = candidate;
+              }
+            }
+          }
+          if (best && bestPenalty <= 0.01) return finalizeNode(best);
+        }
+
+        return finalizeNode(best || buildCandidate(tx, ty, 0.34));
       }
 
       const mode = layoutMode();
@@ -1913,6 +1945,70 @@ function clearStairsLandingZone(dungeon){
       dungeon.reachable = floodReachableTiles(dungeon.tiles, stairsTile.tx, stairsTile.ty);
     }
 
+    function findReachableStairsPosition(dungeon, room, fallback){
+      const reachable = dungeon.reachable || ensureDungeonReachability(dungeon);
+      const roomW = Math.max(2, Math.floor(room?.w || 2));
+      const roomH = Math.max(2, Math.floor(room?.h || 2));
+      const centerTx = Math.round(room?.cx ?? tileCoordsFromWorld(fallback.x, fallback.y).tx);
+      const centerTy = Math.round(room?.cy ?? tileCoordsFromWorld(fallback.x, fallback.y).ty);
+
+      function tileWallClearanceScore(tx, ty){
+        let score = 0;
+        for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+          const nx = tx + ox, ny = ty + oy;
+          if (!isTileInBounds(dungeon.tiles, nx, ny)) return -999;
+          if (isWalkableTileValue(dungeon.tiles[ny][nx])) score++;
+        }
+        return score;
+      }
+
+      const localOffsets = [];
+      localOffsets.push([0, 0]);
+      for (let r = 1; r <= Math.max(roomW, roomH); r++) {
+        for (let oy = -r; oy <= r; oy++) {
+          for (let ox = -r; ox <= r; ox++) {
+            if (Math.max(Math.abs(ox), Math.abs(oy)) !== r) continue;
+            localOffsets.push([ox, oy]);
+          }
+        }
+      }
+
+      let best = null;
+      let bestScore = -1e9;
+      for (const [ox, oy] of localOffsets) {
+        const tx = centerTx + ox;
+        const ty = centerTy + oy;
+        if (!isTileInBounds(dungeon.tiles, tx, ty)) continue;
+        if (!reachable.has(`${tx},${ty}`)) continue;
+        if (!isWalkableTileValue(dungeon.tiles[ty][tx])) continue;
+        const clearance = tileWallClearanceScore(tx, ty);
+        if (clearance < 5) continue;
+        const centerBias = -(Math.abs(ox) + Math.abs(oy)) * 0.35;
+        const score = clearance + centerBias;
+        if (score > bestScore) {
+          bestScore = score;
+          best = {x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE};
+        }
+      }
+      if (best) return best;
+
+      const fallbackTile = tileCoordsFromWorld(fallback.x, fallback.y);
+      for (let radius = 0; radius <= 8; radius++) {
+        for (let oy = -radius; oy <= radius; oy++) {
+          for (let ox = -radius; ox <= radius; ox++) {
+            if (Math.max(Math.abs(ox), Math.abs(oy)) !== radius) continue;
+            const tx = fallbackTile.tx + ox;
+            const ty = fallbackTile.ty + oy;
+            if (!isTileInBounds(dungeon.tiles, tx, ty)) continue;
+            if (!reachable.has(`${tx},${ty}`)) continue;
+            if (!isWalkableTileValue(dungeon.tiles[ty][tx])) continue;
+            return {x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE};
+          }
+        }
+      }
+      return {x: fallback.x, y: fallback.y};
+    }
+
     function findReachableBossPosition(dungeon, start, fallbackX, fallbackY){
       const reachable = dungeon.reachable || ensureDungeonReachability(dungeon);
       const startTile = tileCoordsFromWorld(start.x, start.y);
@@ -2029,15 +2125,17 @@ function clearStairsLandingZone(dungeon){
       const startRoom = normalized.startRoom;
       const stairsRoom = normalized.stairsRoom;
       const start = {x:(startRoom.cx+0.5)*TILE, y:(startRoom.cy+0.5)*TILE};
-      const stairs = {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE};
+      const provisionalStairs = {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE};
       const dungeon = {
-        w,h,tiles,objects:[],rooms,start,stairs,
+        w,h,tiles,objects:[],rooms,start,stairs:provisionalStairs,
         theme:themeForFloor(floor),
         layout:normalized.layout,
         vectorMaze:normalized.vectorMaze,
         mazeSegments:normalized.mazeSegments,
         mazeNodes:normalized.mazeNodes
       };
+      ensureDungeonReachability(dungeon);
+      dungeon.stairs = findReachableStairsPosition(dungeon, stairsRoom, provisionalStairs);
       ensureDungeonReachability(dungeon);
       dungeon.objects = scatterDungeonProps(tiles, rooms, startRoom, stairsRoom);
       clearStairsLandingZone(dungeon);
@@ -2686,11 +2784,9 @@ function clearStairsLandingZone(dungeon){
 
     function canMoveCircle(x,y,r, options={}){
       const d = state.dungeon;
-      const wallSlack = Math.max(0, options.wallSlack || 0);
-      const wallR = Math.max(2, r - wallSlack);
+      const wallR = Math.max(2, r);
       if (d.vectorMaze) {
-        // ベクトル迷路の部屋入口は見た目より狭く感じやすいので、
-        // 壁判定だけ少しだけ半径を緩める。オブジェクト判定は元の半径を維持する。
+        // ベクトル迷路の部屋と通路を同じ接触判定で扱う。
         if (!canOccupyVectorMaze(d, x, y, wallR)) return false;
         for (const o of d.objects) {
           if (!o.dead && circleRect(x,y,r,o.x,o.y,o.w,o.h)) return false;
@@ -2711,7 +2807,7 @@ function clearStairsLandingZone(dungeon){
     }
 
     function reflectVelocityAgainstWall(body, axis) {
-      const bounce = 0.5;
+      const bounce = 2 / 3;
       if (axis === 'x') {
         body.vx *= -bounce;
         body.vy *= bounce;
@@ -2731,7 +2827,7 @@ function clearStairsLandingZone(dungeon){
         return;
       }
       const isPlayerBody = body === state.player;
-      const collisionOptions = isPlayerBody ? { wallSlack: 3 } : undefined;
+      const collisionOptions = undefined;
       const nx = body.x + body.vx*dt;
       const hitX = !canMoveCircle(nx, body.y, body.r, collisionOptions);
       if (!hitX) {
