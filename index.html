@@ -1,4 +1,4 @@
-<!-- ver. 0.5.73-corridor-safe -->
+<!-- ver. 0.5.74-corridor-safe -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.73-corridor-safe</div>
+  <div id="versionTag">ver. 0.5.74-corridor-safe</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -736,6 +736,8 @@
         poisonTickAt: 0,
         antidoteMushrooms: 0,
         lastDamageAt: -999,
+        cameraKickX: 0,
+        cameraKickY: 0,
         key: false,
         sword: {tier:'wood', damage:10 * SWORD_GLOBAL_DAMAGE_MULTIPLIER, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
@@ -1499,7 +1501,24 @@
           }
         }
 
-        return finalizeNode(buildCandidate(tx, ty, 0.72));
+        for (const scale of [0.66, 0.58, 0.5]) {
+          for (let i = 0; i < 48; i++) {
+            const nx = clampTile(rand(margin, w - margin - 1), margin, w - margin - 1);
+            const ny = clampTile(rand(margin, h - margin - 1), margin, h - margin - 1);
+            candidate = buildCandidate(nx, ny, scale);
+            if (!overlapsExistingNodes(candidate, 0.55)) return finalizeNode(candidate);
+          }
+        }
+
+        for (let gy = margin; gy < h - margin; gy += 2) {
+          for (let gx = margin; gx < w - margin; gx += 2) {
+            candidate = buildCandidate(gx, gy, 0.5);
+            if (!overlapsExistingNodes(candidate, 0.5)) return finalizeNode(candidate);
+          }
+        }
+
+        candidate = buildCandidate(tx, ty, 0.5);
+        return finalizeNode(candidate);
       }
 
       const mode = layoutMode();
@@ -2798,6 +2817,11 @@ function clearStairsLandingZone(dungeon){
         return;
       }
       const p = state.player;
+      const cameraKickDecay = Math.max(0, 1 - dt * 8.0);
+      p.cameraKickX *= cameraKickDecay;
+      p.cameraKickY *= cameraKickDecay;
+      if (Math.abs(p.cameraKickX) < 0.01) p.cameraKickX = 0;
+      if (Math.abs(p.cameraKickY) < 0.01) p.cameraKickY = 0;
       const idir = inputDir();
       p.vx += idir.x * p.accel * dt;
       p.vy += idir.y * p.accel * dt;
@@ -3533,6 +3557,7 @@ function clearStairsLandingZone(dungeon){
       const p = state.player;
       p.hp -= dmg;
       p.lastDamageAt = state.t;
+      applyPlayerCameraShock(Math.max(3.8, 2.4 + dmg * 0.45));
       playSfx('damage');
       if (poisonSec > 0) {
         p.poisonUntil = Math.max(p.poisonUntil, state.t + poisonSec);
@@ -3829,7 +3854,7 @@ function clearStairsLandingZone(dungeon){
     function draw(){
       const screenW = canvas.clientWidth, screenH = canvas.clientHeight;
       const w = viewWidth, h = viewHeight;
-      const cam = {x: state.player.x - w/2, y: state.player.y - h/2};
+      const cam = {x: state.player.x - w/2 + state.player.cameraKickX, y: state.player.y - h/2 + state.player.cameraKickY};
 
       // canvas の見た目サイズは resize() で確定済み。
       // ここでは、その中へ論理画面を renderScale 倍で描くだけにする。
