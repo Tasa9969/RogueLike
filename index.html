@@ -1,4 +1,4 @@
-<!-- ver. 0.5.75-corridor-safe -->
+<!-- ver. 0.5.76-corridor-safe -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.75-corridor-safe</div>
+  <div id="versionTag">ver. 0.5.76-corridor-safe</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2009,6 +2009,68 @@ function clearStairsLandingZone(dungeon){
       return {x: fallback.x, y: fallback.y};
     }
 
+
+    function computeStartReachableTiles(dungeon){
+      const tiles = dungeon.tiles;
+      const startTile = tileCoordsFromWorld(dungeon.start.x, dungeon.start.y);
+      if (!isWalkableTileValue(tiles[startTile.ty]?.[startTile.tx])) tiles[startTile.ty][startTile.tx] = 0;
+      return floodReachableTiles(tiles, startTile.tx, startTile.ty);
+    }
+
+    function isTileInsideRoomBounds(room, tx, ty, pad = 0){
+      if (!room) return false;
+      const left = Math.floor((room.x ?? (room.cx - room.w * 0.5)) - pad);
+      const top = Math.floor((room.y ?? (room.cy - room.h * 0.5)) - pad);
+      const right = Math.ceil(((room.x ?? (room.cx - room.w * 0.5)) + (room.w ?? 0)) + pad);
+      const bottom = Math.ceil(((room.y ?? (room.cy - room.h * 0.5)) + (room.h ?? 0)) + pad);
+      return tx >= left && tx < right && ty >= top && ty < bottom;
+    }
+
+    function roomHasCorridorConnection(dungeon, room, reachable){
+      if (!room) return false;
+      const left = Math.max(1, Math.floor(room.x));
+      const top = Math.max(1, Math.floor(room.y));
+      const right = Math.min(dungeon.w - 2, Math.ceil(room.x + room.w - 1));
+      const bottom = Math.min(dungeon.h - 2, Math.ceil(room.y + room.h - 1));
+      for (let ty = top; ty <= bottom; ty++) {
+        for (let tx = left; tx <= right; tx++) {
+          if (!reachable.has(`${tx},${ty}`)) continue;
+          if (!isWalkableTileValue(dungeon.tiles[ty]?.[tx])) continue;
+          const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+          for (const [dx, dy] of dirs) {
+            const nx = tx + dx, ny = ty + dy;
+            if (!isTileInBounds(dungeon.tiles, nx, ny)) continue;
+            if (!reachable.has(`${nx},${ny}`)) continue;
+            if (!isWalkableTileValue(dungeon.tiles[ny]?.[nx])) continue;
+            if (!isTileInsideRoomBounds(room, nx, ny, 0)) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function chooseConnectedStairsRoom(dungeon, fallbackRoom){
+      const reachable = computeStartReachableTiles(dungeon);
+      dungeon.reachable = reachable;
+      const startTile = tileCoordsFromWorld(dungeon.start.x, dungeon.start.y);
+
+      function roomDistanceScore(room){
+        const dx = (room.cx ?? 0) - startTile.tx;
+        const dy = (room.cy ?? 0) - startTile.ty;
+        return dx * dx + dy * dy;
+      }
+
+      const rooms = (dungeon.rooms || []).slice().sort((a, b) => roomDistanceScore(b) - roomDistanceScore(a));
+      for (const room of rooms) {
+        if (room === fallbackRoom || roomDistanceScore(room) <= 0.01) continue;
+        if (roomHasCorridorConnection(dungeon, room, reachable)) return room;
+      }
+      for (const room of rooms) {
+        if (roomHasCorridorConnection(dungeon, room, reachable)) return room;
+      }
+      return fallbackRoom || rooms[rooms.length - 1] || rooms[0] || null;
+    }
+
     function findReachableBossPosition(dungeon, start, fallbackX, fallbackY){
       const reachable = dungeon.reachable || ensureDungeonReachability(dungeon);
       const startTile = tileCoordsFromWorld(start.x, start.y);
@@ -2123,7 +2185,7 @@ function clearStairsLandingZone(dungeon){
       const tiles = normalized.tiles;
       const rooms = normalized.rooms;
       const startRoom = normalized.startRoom;
-      const stairsRoom = normalized.stairsRoom;
+      let stairsRoom = normalized.stairsRoom;
       const start = {x:(startRoom.cx+0.5)*TILE, y:(startRoom.cy+0.5)*TILE};
       const provisionalStairs = {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE};
       const dungeon = {
@@ -2134,8 +2196,8 @@ function clearStairsLandingZone(dungeon){
         mazeSegments:normalized.mazeSegments,
         mazeNodes:normalized.mazeNodes
       };
-      ensureDungeonReachability(dungeon);
-      dungeon.stairs = findReachableStairsPosition(dungeon, stairsRoom, provisionalStairs);
+      stairsRoom = chooseConnectedStairsRoom(dungeon, stairsRoom) || stairsRoom;
+      dungeon.stairs = findReachableStairsPosition(dungeon, stairsRoom, {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE});
       ensureDungeonReachability(dungeon);
       dungeon.objects = scatterDungeonProps(tiles, rooms, startRoom, stairsRoom);
       clearStairsLandingZone(dungeon);
