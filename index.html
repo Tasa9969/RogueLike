@@ -1,4 +1,4 @@
-<!-- ver. 0.5.84-treasure-audio-fix -->
+<!-- ver. 0.5.85-chest-contact-silent -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.84-treasure-audio-fix</div>
+  <div id="versionTag">ver. 0.5.85-chest-contact-silent</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -3535,6 +3535,15 @@ function clearStairsLandingZone(dungeon){
       for(const e of state.enemies){
         if (e.dead) continue;
         if (dist(p,e) < p.r + e.r) {
+          if (e.chest) {
+            const n = norm(e.x - p.x, e.y - p.y);
+            const overlap = (p.r + e.r) - dist(p, e);
+            if (overlap > 0) {
+              p.x -= n.x * overlap * 0.55;
+              p.y -= n.y * overlap * 0.55;
+            }
+            continue;
+          }
           const now = state.t;
           if (state.t < state.floorSafeUntil) continue;
           if (!e.lastContact || now - e.lastContact >= CONTACT_INTERVAL) {
