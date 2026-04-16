@@ -1,4 +1,4 @@
-<!-- ver. 0.5.70-route-floor-collision -->
+<!-- ver. 0.5.72-corridor-safe -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.70-route-floor-collision</div>
+  <div id="versionTag">ver. 0.5.72-corridor-safe</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -250,6 +250,18 @@
       damage: 0.82,
       bombkill: 0.58,
     };
+    const AUDIO_POOL_LIMITS = {
+      sword: 6,
+      bow: 5,
+      mushroom: 2,
+      hit: 8,
+      explode: 6,
+      floor: 2,
+      level: 2,
+      pickup: 4,
+      damage: 4,
+      bombkill: 4,
+    };
 
     function unlockAudio() {
       if (audioUnlocked) return;
@@ -278,11 +290,29 @@
       const pool = audioPools[kind];
       let voice = pool.find(a => a.paused || a.ended);
       if (!voice) {
-        voice = pool[0].cloneNode();
-        voice.volume = audioVolumes[kind] ?? 1.0;
-        pool.push(voice);
+        const limit = AUDIO_POOL_LIMITS[kind] ?? 4;
+        if (pool.length < limit) {
+          voice = pool[0].cloneNode();
+          voice.volume = audioVolumes[kind] ?? 1.0;
+          voice.preload = 'auto';
+          pool.push(voice);
+        } else {
+          voice = pool[0];
+        }
       }
       return voice;
+    }
+
+    function resetAudioPools() {
+      for (const pool of Object.values(audioPools)) {
+        for (const audio of pool) {
+          try {
+            audio.pause();
+            audio.currentTime = 0;
+          } catch (_) {}
+        }
+        if (pool.length > 1) pool.splice(1);
+      }
     }
 
     // kind ごとの mp3 を重ねて鳴らせるように、再生中ならクローンを使う。
@@ -740,6 +770,8 @@
         sword: {tier:'wood', damage:10 * SWORD_GLOBAL_DAMAGE_MULTIPLIER, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
         bow: {tier:'copper', damage:2, arrows:100, max:UNLIMITED_AMMO_CAP, speed:340, cooldown:0.92, last:-9, points:0, effectivePoints:0, label:'カッパー'},
+        cameraKickX: 0,
+        cameraKickY: 0,
       };
     }
 
@@ -1283,11 +1315,84 @@
           }
         }
       }
-      function addSegment(a, b, mult=null){
+      function pointInsideNodeExpanded(wx, wy, node, padTiles=0){
+        const tx = wx / TILE - 0.5;
+        const ty = wy / TILE - 0.5;
+        if (node.shape === 'rect' || node.shape === 'ellipse') {
+          const c = Math.cos(-(node.rot||0)), s = Math.sin(-(node.rot||0));
+          const dx = tx - node.tx;
+          const dy = ty - node.ty;
+          const lx = dx*c - dy*s;
+          const ly = dx*s + dy*c;
+          const rx = Math.max(1.5, node.wTiles * 0.54 + padTiles);
+          const ry = Math.max(1.5, node.hTiles * 0.54 + padTiles);
+          if (node.shape === 'rect') return Math.abs(lx) <= rx && Math.abs(ly) <= ry;
+          return ((lx*lx)/(rx*rx) + (ly*ly)/(ry*ry)) <= 1;
+        }
+        const pts = makeNodePolygon(node, 1.06 + padTiles * 0.12);
+        return pointInPolygon(tx + 0.5, ty + 0.5, pts);
+      }
+
+      function segmentEncroachesUnrelatedNode(a, b, thickness){
+        const radiusTiles = Math.max(1.1, thickness / TILE * 0.5 + 0.9);
+        const steps = Math.max(20, Math.ceil(Math.hypot((b.x-a.x)/TILE, (b.y-a.y)/TILE) * 3.2));
+        for (const other of mazeNodes) {
+          if (other === a || other === b) continue;
+          const loose = nodeLooseExtents(other, radiusTiles + 0.8);
+          const mx = (a.x + b.x) * 0.5 / TILE - 0.5;
+          const my = (a.y + b.y) * 0.5 / TILE - 0.5;
+          const dxm = Math.abs(mx - other.tx);
+          const dym = Math.abs(my - other.ty);
+          const halfSpanX = Math.abs((b.x - a.x) / TILE) * 0.5 + radiusTiles;
+          const halfSpanY = Math.abs((b.y - a.y) / TILE) * 0.5 + radiusTiles;
+          if (dxm > loose.ex + halfSpanX + 1.5 || dym > loose.ey + halfSpanY + 1.5) continue;
+
+          for(let i=1;i<steps;i++){
+            const t = i / steps;
+            const wx = a.x + (b.x - a.x) * t;
+            const wy = a.y + (b.y - a.y) * t;
+            if (pointInsideNodeExpanded(wx, wy, other, radiusTiles)) return true;
+          }
+        }
+        return false;
+      }
+
+      function addSegmentDirect(a, b, mult=null){
         const thickness = TILE * (0.85 + 0.55 * (mult || segmentThicknessMultiplier()));
+        if (segmentEncroachesUnrelatedNode(a, b, thickness)) return false;
         const seg = {x1:a.x, y1:a.y, x2:b.x, y2:b.y, thickness};
         mazeSegments.push(seg);
         carveSegment(seg);
+        return true;
+      }
+
+      function addSegment(a, b, mult=null){
+        if (addSegmentDirect(a, b, mult)) return true;
+
+        const ax = a.x / TILE - 0.5, ay = a.y / TILE - 0.5;
+        const bx = b.x / TILE - 0.5, by = b.y / TILE - 0.5;
+        const doglegs = [
+          {x:(ax + bx) * 0.5, y:ay},
+          {x:(ax + bx) * 0.5, y:by},
+          {x:ax, y:(ay + by) * 0.5},
+          {x:bx, y:(ay + by) * 0.5},
+          {x:ax, y:by},
+          {x:bx, y:ay},
+        ];
+
+        for (const p of doglegs) {
+          const mid = {
+            x:(Math.max(margin, Math.min(w - margin - 1, p.x)) + 0.5) * TILE,
+            y:(Math.max(margin, Math.min(h - margin - 1, p.y)) + 0.5) * TILE,
+          };
+          const beforeCount = mazeSegments.length;
+          if (addSegmentDirect(a, mid, mult)) {
+            if (addSegmentDirect(mid, b, mult)) return true;
+            mazeSegments.length = beforeCount;
+          }
+        }
+
+        return false;
       }
       function layoutMode(){
         const roll = Math.random();
@@ -1775,49 +1880,6 @@
       return path;
     }
 
-    function findRouteTilesBetween(dungeon, fromWorld, toWorld){
-      const tiles = dungeon.tiles;
-      const fromTile = tileCoordsFromWorld(fromWorld.x, fromWorld.y);
-      const toTile = tileCoordsFromWorld(toWorld.x, toWorld.y);
-      const startKey = `${fromTile.tx},${fromTile.ty}`;
-      const goalKey = `${toTile.tx},${toTile.ty}`;
-      const q = [[fromTile.tx, fromTile.ty]];
-      const prev = new Map();
-      prev.set(startKey, null);
-
-      for (let i = 0; i < q.length; i++) {
-        const [cx, cy] = q[i];
-        if (cx === toTile.tx && cy === toTile.ty) break;
-        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-        for (const [dx, dy] of dirs) {
-          const nx = cx + dx, ny = cy + dy;
-          const key = `${nx},${ny}`;
-          if (!isTileInBounds(tiles, nx, ny) || prev.has(key)) continue;
-          if (!isWalkableTileValue(tiles[ny][nx])) continue;
-          prev.set(key, [cx, cy]);
-          q.push([nx, ny]);
-        }
-      }
-
-      if (!prev.has(goalKey)) return [];
-      const path = [];
-      let cur = [toTile.tx, toTile.ty];
-      while (cur) {
-        path.push({tx: cur[0], ty: cur[1]});
-        cur = prev.get(`${cur[0]},${cur[1]}`);
-      }
-      path.reverse();
-      return path;
-    }
-
-    function clearRouteObstaclesBetween(dungeon, fromWorld, toWorld, band = null){
-      const pathTiles = findRouteTilesBetween(dungeon, fromWorld, toWorld);
-      if (!pathTiles.length) return [];
-      const effectiveBand = band === null ? (dungeon.vectorMaze ? 1 : 0) : band;
-      dungeon.objects = dungeon.objects.filter(o => !rectOverlapsPathBand(o, pathTiles, effectiveBand));
-      return pathTiles;
-    }
-
     function rectOverlapsPathBand(obj, pathTiles, band = 1){
       const left = obj.x;
       const right = obj.x + obj.w;
@@ -1834,8 +1896,11 @@
     }
 
     function clearMainRouteObstacles(dungeon){
-      const pathTiles = clearRouteObstaclesBetween(dungeon, dungeon.start, dungeon.stairs);
+      const pathTiles = findMainRouteTiles(dungeon);
       if (!pathTiles.length) return;
+
+      const band = dungeon.vectorMaze ? 1 : 0;
+      dungeon.objects = dungeon.objects.filter(o => !rectOverlapsPathBand(o, pathTiles, band));
 
       const startBandRadius = TILE * 2.2;
       dungeon.objects = dungeon.objects.filter(o => {
@@ -2321,8 +2386,6 @@ function clearStairsLandingZone(dungeon){
       const bossSpot = findReachableBossPosition(state.dungeon, state.dungeon.start, bossX, bossY);
       bossX = bossSpot.x;
       bossY = bossSpot.y;
-      clearRouteObstaclesBetween(state.dungeon, state.dungeon.start, {x: bossX, y: bossY}, state.dungeon.vectorMaze ? 1 : 0);
-      clearRouteObstaclesBetween(state.dungeon, state.dungeon.start, state.dungeon.stairs, state.dungeon.vectorMaze ? 1 : 0);
       enemies.push(makeEnemy(bossType, bossX, bossY, state.floor, true));
 
       state.enemies = enemies.filter(e => e.boss || isFarFromStartSpawn(e.x, e.y, state.dungeon.start));
@@ -2536,6 +2599,8 @@ function clearStairsLandingZone(dungeon){
     function init(){
       overlay.style.opacity = '0';
       overlay.className = '';
+      resetAudioPools();
+      last = performance.now();
       state = {
         floor: 1,
         t: 0,
@@ -2573,43 +2638,159 @@ function clearStairsLandingZone(dungeon){
       return Math.hypot(px - qx, py - qy);
     }
 
+    function closestPointOnSegment(px, py, x1, y1, x2, y2){
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len2 = dx * dx + dy * dy;
+      if (len2 <= 0.0001) return {x:x1, y:y1, t:0};
+      let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+      t = clamp(t, 0, 1);
+      return {x:x1 + dx * t, y:y1 + dy * t, t};
+    }
+
+    function rotateLocal(dx, dy, rot){
+      const c = Math.cos(-rot), s = Math.sin(-rot);
+      return {x: dx*c - dy*s, y: dx*s + dy*c};
+    }
+
+    function rotateWorld(dx, dy, rot){
+      const c = Math.cos(rot), s = Math.sin(rot);
+      return {x: dx*c - dy*s, y: dx*s + dy*c};
+    }
+
+    function vectorMazeNodePolygon(node, inset, expand=1){
+      const hw = Math.max(10, node.width * 0.5 * expand - inset);
+      const hh = Math.max(10, node.height * 0.5 * expand - inset);
+      let pts = [];
+      if (node.shape === 'triangle') {
+        pts = [{x:0,y:-hh},{x:hw*0.92,y:hh*0.82},{x:-hw*0.92,y:hh*0.82}];
+      } else if (node.shape === 'pentagon' || node.shape === 'hexagon' || node.shape === 'octagon') {
+        const n = node.shape === 'pentagon' ? 5 : node.shape === 'hexagon' ? 6 : 8;
+        for (let i = 0; i < n; i++) {
+          const a = -Math.PI/2 + i * Math.PI * 2 / n;
+          pts.push({x:Math.cos(a)*hw, y:Math.sin(a)*hh});
+        }
+      } else if (node.shape === 'star8') {
+        for (let i = 0; i < 16; i++) {
+          const a = -Math.PI/2 + i * Math.PI / 8;
+          const rr = (i % 2 === 0) ? 1 : 0.42;
+          pts.push({x:Math.cos(a)*hw*rr, y:Math.sin(a)*hh*rr});
+        }
+      }
+      return pts;
+    }
+
+    function pointInPoly(px, py, pts){
+      let inside = false;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const a = pts[i], b = pts[j];
+        if (((a.y > py) !== (b.y > py)) &&
+            (px < (b.x - a.x) * (py - a.y) / ((b.y - a.y) || 1e-6) + a.x)) inside = !inside;
+      }
+      return inside;
+    }
+
+    function reflectVelocityAgainstNormal(body, normal, bounce = 2 / 3) {
+      let nx = normal.x;
+      let ny = normal.y;
+      const nl = Math.hypot(nx, ny) || 1;
+      nx /= nl;
+      ny /= nl;
+      let approach = body.vx * nx + body.vy * ny;
+      if (approach > 0) {
+        nx *= -1;
+        ny *= -1;
+        approach = body.vx * nx + body.vy * ny;
+      }
+      const rx = body.vx - 2 * approach * nx;
+      const ry = body.vy - 2 * approach * ny;
+      body.vx = rx * bounce;
+      body.vy = ry * bounce;
+    }
+
+    function findVectorMazeCollisionNormal(d, x, y, r, vx = 0, vy = 0){
+      const inset = Math.max(6, r + 2);
+      let best = null;
+
+      function consider(nx, ny, score){
+        if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+        const ll = Math.hypot(nx, ny);
+        if (ll <= 1e-6) return;
+        const cand = {x:nx/ll, y:ny/ll, score};
+        if (!best || cand.score < best.score) best = cand;
+      }
+
+      if (d.mazeSegments) {
+        for (const seg of d.mazeSegments) {
+          const allowance = Math.max(8, seg.thickness * 0.5 - inset);
+          const cp = closestPointOnSegment(x, y, seg.x1, seg.y1, seg.x2, seg.y2);
+          const dx = x - cp.x;
+          const dy = y - cp.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist <= allowance + 0.001) {
+            if (dist > 1e-6) {
+              consider(dx, dy, dist);
+            } else {
+              const sx = seg.x2 - seg.x1;
+              const sy = seg.y2 - seg.y1;
+              let nx = -sy, ny = sx;
+              if ((vx * nx + vy * ny) > 0) {
+                nx *= -1;
+                ny *= -1;
+              }
+              consider(nx, ny, 0);
+            }
+          }
+        }
+      }
+
+      if (d.mazeNodes) {
+        for (const node of d.mazeNodes) {
+          const local = rotateLocal(x - node.x, y - node.y, node.rot || 0);
+          const hw = Math.max(10, node.width * 0.5 - inset);
+          const hh = Math.max(10, node.height * 0.5 - inset);
+          if (node.shape === 'rect') {
+            if (Math.abs(local.x) <= hw && Math.abs(local.y) <= hh) {
+              const penX = hw - Math.abs(local.x);
+              const penY = hh - Math.abs(local.y);
+              const localNormal = penX < penY
+                ? {x: local.x >= 0 ? 1 : -1, y: 0}
+                : {x: 0, y: local.y >= 0 ? 1 : -1};
+              const worldNormal = rotateWorld(localNormal.x, localNormal.y, node.rot || 0);
+              consider(worldNormal.x, worldNormal.y, Math.min(penX, penY));
+            }
+          } else if (node.shape === 'ellipse') {
+            const value = (local.x*local.x)/(hw*hw) + (local.y*local.y)/(hh*hh);
+            if (value <= 1.0) {
+              const gx = local.x / Math.max(1e-6, hw*hw);
+              const gy = local.y / Math.max(1e-6, hh*hh);
+              const worldNormal = rotateWorld(gx, gy, node.rot || 0);
+              consider(worldNormal.x, worldNormal.y, 1 - value);
+            }
+          } else {
+            const poly = vectorMazeNodePolygon(node, inset);
+            if (poly.length && pointInPoly(local.x, local.y, poly)) {
+              for (let i = 0; i < poly.length; i++) {
+                const a = poly[i];
+                const b = poly[(i + 1) % poly.length];
+                const cp = closestPointOnSegment(local.x, local.y, a.x, a.y, b.x, b.y);
+                const dx = local.x - cp.x;
+                const dy = local.y - cp.y;
+                const score = Math.hypot(dx, dy);
+                const worldNormal = rotateWorld(dx, dy, node.rot || 0);
+                consider(worldNormal.x, worldNormal.y, score);
+              }
+            }
+          }
+        }
+      }
+
+      if (best) return {x:best.x, y:best.y};
+      return null;
+    }
+
     function canOccupyVectorMaze(d, x, y, r){
       const inset = Math.max(6, r + 2);
-
-      function rotateLocal(dx, dy, rot){
-        const c = Math.cos(-rot), s = Math.sin(-rot);
-        return {x: dx*c - dy*s, y: dx*s + dy*c};
-      }
-      function nodePolygon(node, expand=1){
-        const hw = Math.max(10, node.width * 0.5 * expand - inset);
-        const hh = Math.max(10, node.height * 0.5 * expand - inset);
-        let pts = [];
-        if (node.shape === 'triangle') {
-          pts = [{x:0,y:-hh},{x:hw*0.92,y:hh*0.82},{x:-hw*0.92,y:hh*0.82}];
-        } else if (node.shape === 'pentagon' || node.shape === 'hexagon' || node.shape === 'octagon') {
-          const n = node.shape === 'pentagon' ? 5 : node.shape === 'hexagon' ? 6 : 8;
-          for (let i = 0; i < n; i++) {
-            const a = -Math.PI/2 + i * Math.PI * 2 / n;
-            pts.push({x:Math.cos(a)*hw, y:Math.sin(a)*hh});
-          }
-        } else if (node.shape === 'star8') {
-          for (let i = 0; i < 16; i++) {
-            const a = -Math.PI/2 + i * Math.PI / 8;
-            const rr = (i % 2 === 0) ? 1 : 0.42;
-            pts.push({x:Math.cos(a)*hw*rr, y:Math.sin(a)*hh*rr});
-          }
-        }
-        return pts;
-      }
-      function pointInPoly(px, py, pts){
-        let inside = false;
-        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-          const a = pts[i], b = pts[j];
-          if (((a.y > py) !== (b.y > py)) &&
-              (px < (b.x - a.x) * (py - a.y) / ((b.y - a.y) || 1e-6) + a.x)) inside = !inside;
-        }
-        return inside;
-      }
 
       if (d.mazeNodes) {
         for (const node of d.mazeNodes) {
@@ -2621,7 +2802,7 @@ function clearStairsLandingZone(dungeon){
           } else if (node.shape === 'ellipse') {
             if ((local.x*local.x)/(hw*hw) + (local.y*local.y)/(hh*hh) <= 1) return true;
           } else {
-            if (pointInPoly(local.x, local.y, nodePolygon(node))) return true;
+            if (pointInPoly(local.x, local.y, vectorMazeNodePolygon(node, inset))) return true;
           }
         }
       }
@@ -2636,11 +2817,17 @@ function clearStairsLandingZone(dungeon){
 
     function canMoveCircle(x,y,r){
       const d = state.dungeon;
+      if (d.vectorMaze) {
+        if (!canOccupyVectorMaze(d, x, y, r)) return false;
+        for (const o of d.objects) {
+          if (!o.dead && circleRect(x,y,r,o.x,o.y,o.w,o.h)) return false;
+        }
+        return true;
+      }
       const minX = Math.floor((x-r)/TILE)-1, maxX = Math.floor((x+r)/TILE)+1;
       const minY = Math.floor((y-r)/TILE)-1, maxY = Math.floor((y+r)/TILE)+1;
       for(let ty=minY;ty<=maxY;ty++) for(let tx=minX;tx<=maxX;tx++){
-        const tile = d.tiles[ty]?.[tx];
-        if (tile === undefined || tile === 1 || tile === 2) {
+        if (!d.tiles[ty] || d.tiles[ty][tx]===undefined || d.tiles[ty][tx]===1 || (d.tiles[ty][tx]===2)) {
           if (circleRect(x,y,r,tx*TILE,ty*TILE,TILE,TILE)) return false;
         }
       }
@@ -2650,16 +2837,65 @@ function clearStairsLandingZone(dungeon){
       return true;
     }
 
+    function reflectVelocityAgainstWall(body, axis) {
+      const bounce = 2 / 3;
+      if (axis === 'x') {
+        body.vx *= -bounce;
+        body.vy *= bounce;
+      } else if (axis === 'y') {
+        body.vx *= bounce;
+        body.vy *= -bounce;
+      } else {
+        body.vx *= -bounce;
+        body.vy *= -bounce;
+      }
+    }
+
     function moveBody(body, dt) {
       if (body.phasesWalls) {
         body.x += body.vx * dt;
         body.y += body.vy * dt;
         return;
       }
+      const isPlayerBody = body === state.player;
+      const d = state.dungeon;
+
+      if (isPlayerBody && d.vectorMaze) {
+        const tx = body.x + body.vx * dt;
+        const ty = body.y + body.vy * dt;
+        if (canMoveCircle(tx, ty, body.r)) {
+          body.x = tx;
+          body.y = ty;
+          return;
+        }
+        const normal = findVectorMazeCollisionNormal(d, tx, ty, body.r, body.vx, body.vy)
+          || findVectorMazeCollisionNormal(d, body.x + body.vx * dt * 0.5, body.y + body.vy * dt * 0.5, body.r, body.vx, body.vy);
+        if (normal) {
+          reflectVelocityAgainstNormal(body, normal, 2 / 3);
+        } else {
+          reflectVelocityAgainstWall(body, 'corner');
+        }
+        return;
+      }
+
       const nx = body.x + body.vx*dt;
-      if (canMoveCircle(nx, body.y, body.r)) body.x = nx; else body.vx *= -0.18;
+      const hitX = !canMoveCircle(nx, body.y, body.r);
+      if (!hitX) {
+        body.x = nx;
+      } else if (isPlayerBody) {
+        reflectVelocityAgainstWall(body, 'x');
+      } else {
+        body.vx *= -0.18;
+      }
       const ny = body.y + body.vy*dt;
-      if (canMoveCircle(body.x, ny, body.r)) body.y = ny; else body.vy *= -0.18;
+      const hitY = !canMoveCircle(body.x, ny, body.r);
+      if (!hitY) {
+        body.y = ny;
+      } else if (isPlayerBody) {
+        reflectVelocityAgainstWall(body, hitX ? 'corner' : 'y');
+      } else {
+        body.vy *= -0.18;
+      }
     }
 
     // 指定位置が壁や障害物に埋まる場合、近場の通行可能位置を探して返す。
@@ -2741,6 +2977,11 @@ function clearStairsLandingZone(dungeon){
       }
       if (Math.abs(p.vx)+Math.abs(p.vy)>5) p.angle = Math.atan2(p.vy,p.vx);
       moveBody(p, dt);
+      const recenter = Math.max(0, 1 - dt * 4.2);
+      p.cameraKickX *= recenter;
+      p.cameraKickY *= recenter;
+      if (Math.abs(p.cameraKickX) < 0.05) p.cameraKickX = 0;
+      if (Math.abs(p.cameraKickY) < 0.05) p.cameraKickY = 0;
 
       if (state.t < p.poisonUntil && state.t >= p.poisonTickAt){
         p.hp = Math.max(0, p.hp - 1);
@@ -3445,6 +3686,16 @@ function clearStairsLandingZone(dungeon){
       const p = state.player;
       p.hp -= dmg;
       p.lastDamageAt = state.t;
+      const shockAngle = Math.random() * Math.PI * 2;
+      const shockPower = Math.min(8, 3.5 + dmg * 0.8);
+      p.cameraKickX += Math.cos(shockAngle) * shockPower;
+      p.cameraKickY += Math.sin(shockAngle) * shockPower;
+      const cameraKickLen = Math.hypot(p.cameraKickX, p.cameraKickY);
+      if (cameraKickLen > 10) {
+        const scale = 10 / cameraKickLen;
+        p.cameraKickX *= scale;
+        p.cameraKickY *= scale;
+      }
       playSfx('damage');
       if (poisonSec > 0) {
         p.poisonUntil = Math.max(p.poisonUntil, state.t + poisonSec);
@@ -3741,7 +3992,10 @@ function clearStairsLandingZone(dungeon){
     function draw(){
       const screenW = canvas.clientWidth, screenH = canvas.clientHeight;
       const w = viewWidth, h = viewHeight;
-      const cam = {x: state.player.x - w/2, y: state.player.y - h/2};
+      const cam = {
+        x: state.player.x - w/2 - (state.player.cameraKickX || 0),
+        y: state.player.y - h/2 - (state.player.cameraKickY || 0)
+      };
 
       // canvas の見た目サイズは resize() で確定済み。
       // ここでは、その中へ論理画面を renderScale 倍で描くだけにする。
@@ -3842,17 +4096,17 @@ function clearStairsLandingZone(dungeon){
 
       const p = state.player;
       if (state.swordSwing && p.sword) {
-        const metrics = updateSwordSwingState(state.swordSwing);
-        if (metrics) {
-          const { reach, dir, damageMult } = metrics;
-          const sx = p.x - cam.x, sy = p.y - cam.y;
-          ctx.strokeStyle = tierColor(p.sword.tier);
-          ctx.lineWidth = damageMult === 3 ? 9 : damageMult === 2 ? 8 : 7;
-          ctx.beginPath();
-          ctx.moveTo(sx + dir.x*8, sy + dir.y*8);
-          ctx.lineTo(sx + dir.x*reach, sy + dir.y*reach);
-          ctx.stroke();
-        }
+        const swing = state.swordSwing;
+        const reach = swing.currentReach ?? SWORD_MIN_REACH;
+        const dir = {x:Math.cos(p.angle), y:Math.sin(p.angle)};
+        const damageMult = swing.damageMult ?? 1;
+        const sx = p.x - cam.x, sy = p.y - cam.y;
+        ctx.strokeStyle = tierColor(p.sword.tier);
+        ctx.lineWidth = damageMult === 3 ? 9 : damageMult === 2 ? 8 : 7;
+        ctx.beginPath();
+        ctx.moveTo(sx + dir.x*8, sy + dir.y*8);
+        ctx.lineTo(sx + dir.x*reach, sy + dir.y*reach);
+        ctx.stroke();
       }
 
       if (state.gameOver) {
@@ -3926,7 +4180,7 @@ function clearStairsLandingZone(dungeon){
     }
 
     function drawPlayer(p, cam){
-      const x = p.x-cam.x, y = p.y-cam.y;
+      const x = p.x - cam.x, y = p.y - cam.y;
       ctx.save();
       ctx.translate(x,y);
       ctx.rotate(p.angle);
