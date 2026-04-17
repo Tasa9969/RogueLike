@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.6.00-homing-missile-rush</div>
+  <div id="versionTag">ver. 0.6.01-homing-missile-fix</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -3445,14 +3445,16 @@ function clearStairsLandingZone(dungeon){
           if (Math.abs(e.vx) + Math.abs(e.vy) > 1.5) e.angle = Math.atan2(e.vy, e.vx) + Math.PI * 0.5;
 
           const prevX = e.x, prevY = e.y;
-          moveBody(e, dt);
-          const moved = Math.hypot(e.x - prevX, e.y - prevY);
-          if (moved < 0.3 && e.missileState !== 'idle') {
+          const nextX = e.x + e.vx * dt;
+          const nextY = e.y + e.vy * dt;
+          if (!canMoveCircle(nextX, nextY, e.r)) {
             e.hp = 0;
             e.dead = true;
-            addPastelExplosion(prevX, prevY, 1.15);
+            addPastelExplosion(e.x, e.y, 1.15);
             continue;
           }
+          e.x = nextX;
+          e.y = nextY;
           continue;
         }
 
