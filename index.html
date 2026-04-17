@@ -1,4 +1,4 @@
-<!-- ver. 0.5.88-roomstart-corridor-inset -->
+<!-- ver. 0.5.89-corridor-deeper-join -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.88-roomstart-corridor-inset</div>
+  <div id="versionTag">ver. 0.5.89-corridor-deeper-join</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1548,7 +1548,7 @@
               : rand(11.0, 22.0 + progress * 18.0);
           const sideJitter = rand(-2.8, 2.8) * (Math.random() < 0.55 ? 1 : 0.35);
           const isHub = Math.random() < 0.12 + progress * 0.16;
-          const anchorExit = nodeBoundaryPoint(anchor, ux, uy, -0.55);
+          const anchorExit = nodeBoundaryPoint(anchor, ux, uy, -1.35);
           const hallEnd = {
             x: anchorExit.x + ux * hallLen + (-uy) * sideJitter,
             y: anchorExit.y + uy * hallLen + ( ux) * sideJitter,
@@ -1559,8 +1559,8 @@
           node.ty = hallEnd.y + uy * entryInset + rand(-1.2, 1.2);
           finalizeNodePlacement(node);
 
-          const corridorStart = nodeBoundaryPoint(anchor, ux, uy, -0.55);
-          const corridorEnd = nodeBoundaryPoint(node, -ux, -uy, -0.45);
+          const corridorStart = nodeBoundaryPoint(anchor, ux, uy, -1.35);
+          const corridorEnd = nodeBoundaryPoint(node, -ux, -uy, -1.25);
           const hallRadiusTiles = 1.05;
           if (!canPlaceNode(node)) continue;
           if (segmentHitsExistingStructure(corridorStart, corridorEnd, hallRadiusTiles, anchor, node)) continue;
