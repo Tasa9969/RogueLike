@@ -1,4 +1,4 @@
-<!-- ver. 0.5.94-floor-advance-safe -->
+<!-- ver. 0.5.95-fixed-collision-corridor-join -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.94-floor-advance-safe</div>
+  <div id="versionTag">ver. 0.5.95-fixed-collision-corridor-join</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -225,6 +225,9 @@
     // ------------------------------
     // 開始階。検証用にここを書き換える。
     const START_FLOOR = 1;
+    const ROOM_JOIN_INSET_TILES = 2.8;
+    const ROOM_COLLISION_INSET_PX = 14;
+    const HALL_COLLISION_INSET_PX = 14;
     // 迷路生成が長引いた時は枝迷路を打ち切って放射状ダンジョンへフォールバックする。
     const MAZE_GEN_TIME_BUDGET_MS = 120;
     const MAZE_GEN_CREATE_ATTEMPTS = 3;
@@ -1279,8 +1282,8 @@
       }
       function carveRotRectNode(node){
         const c = Math.cos(-(node.rot||0)), s = Math.sin(-(node.rot||0));
-        const rx = Math.max(1.5, node.wTiles * 0.54);
-        const ry = Math.max(1.5, node.hTiles * 0.54);
+        const rx = Math.max(1.5, node.wTiles * 0.5);
+        const ry = Math.max(1.5, node.hTiles * 0.5);
         const span = Math.ceil(Math.max(rx, ry) * 1.5) + 2;
         const minX = Math.max(1, Math.floor(node.tx - span));
         const maxX = Math.min(w-2, Math.ceil(node.tx + span));
@@ -1298,8 +1301,8 @@
       }
       function carveRotEllipseNode(node){
         const c = Math.cos(-(node.rot||0)), s = Math.sin(-(node.rot||0));
-        const rx = Math.max(1.5, node.wTiles * 0.54);
-        const ry = Math.max(1.5, node.hTiles * 0.54);
+        const rx = Math.max(1.5, node.wTiles * 0.5);
+        const ry = Math.max(1.5, node.hTiles * 0.5);
         const span = Math.ceil(Math.max(rx, ry) * 1.5) + 2;
         const minX = Math.max(1, Math.floor(node.tx - span));
         const maxX = Math.min(w-2, Math.ceil(node.tx + span));
@@ -1402,8 +1405,8 @@
       }
 
       function nodeLooseExtents(node, pad=0){
-        const rx = Math.max(1.5, node.wTiles * 0.56 + pad);
-        const ry = Math.max(1.5, node.hTiles * 0.56 + pad);
+        const rx = Math.max(1.5, node.wTiles * 0.5 + pad);
+        const ry = Math.max(1.5, node.hTiles * 0.5 + pad);
         const c = Math.abs(Math.cos(node.rot || 0));
         const s = Math.abs(Math.sin(node.rot || 0));
         return {
@@ -1423,8 +1426,8 @@
           const dy = py - node.ty;
           const lx = dx*c - dy*s;
           const ly = dx*s + dy*c;
-          const rx = Math.max(1.5, node.wTiles * 0.54 + padTiles);
-          const ry = Math.max(1.5, node.hTiles * 0.54 + padTiles);
+          const rx = Math.max(1.5, node.wTiles * 0.5 + padTiles);
+          const ry = Math.max(1.5, node.hTiles * 0.5 + padTiles);
           if (node.shape === 'rect') return Math.abs(lx) <= rx && Math.abs(ly) <= ry;
           return ((lx*lx)/(rx*rx) + (ly*ly)/(ry*ry)) <= 1;
         }
@@ -1516,8 +1519,8 @@
           const s = Math.sin(-(node.rot || 0));
           const lx = ux * c - uy * s;
           const ly = ux * s + uy * c;
-          const rx = Math.max(1.5, node.wTiles * 0.54);
-          const ry = Math.max(1.5, node.hTiles * 0.54);
+          const rx = Math.max(1.5, node.wTiles * 0.5);
+          const ry = Math.max(1.5, node.hTiles * 0.5);
           if (node.shape === 'rect') {
             const tx = Math.abs(lx) > 1e-6 ? rx / Math.abs(lx) : Infinity;
             const ty = Math.abs(ly) > 1e-6 ? ry / Math.abs(ly) : Infinity;
@@ -1593,19 +1596,19 @@
           const lateralSwing = 0.7 + Math.min(1.6, hallLen / 17);
           const sideJitter = rand(-2.8, 2.8) * lateralSwing * (Math.random() < 0.55 ? 1 : 0.35);
           const isHub = Math.random() < 0.12 + progress * 0.16;
-          const anchorExit = nodeBoundaryPoint(anchor, ux, uy, -1.65);
+          const anchorExit = nodeBoundaryPoint(anchor, ux, uy, -ROOM_JOIN_INSET_TILES);
           const hallEnd = {
             x: anchorExit.x + ux * hallLen + (-uy) * sideJitter,
             y: anchorExit.y + uy * hallLen + ( ux) * sideJitter,
           };
           const node = buildNodeAt(hallEnd.x + ux * 4, hallEnd.y + uy * 4, isHub);
-          const entryInset = nodeBoundaryDistance(node, -ux, -uy);
-          node.tx = hallEnd.x + ux * entryInset + rand(-1.2, 1.2);
-          node.ty = hallEnd.y + uy * entryInset + rand(-1.2, 1.2);
+          const entryDistance = Math.max(1.5, nodeBoundaryDistance(node, -ux, -uy) - ROOM_JOIN_INSET_TILES);
+          node.tx = hallEnd.x + ux * entryDistance + rand(-1.2, 1.2);
+          node.ty = hallEnd.y + uy * entryDistance + rand(-1.2, 1.2);
           finalizeNodePlacement(node);
 
-          const corridorStart = nodeBoundaryPoint(anchor, ux, uy, -1.35);
-          const corridorEnd = nodeBoundaryPoint(node, -ux, -uy, -1.55);
+          const corridorStart = nodeBoundaryPoint(anchor, ux, uy, -ROOM_JOIN_INSET_TILES);
+          const corridorEnd = nodeBoundaryPoint(node, -ux, -uy, -ROOM_JOIN_INSET_TILES);
           const hallRadiusTiles = 1.05;
           if (!canPlaceNode(node)) continue;
           if (segmentHitsExistingStructure(corridorStart, corridorEnd, hallRadiusTiles, anchor, node)) continue;
@@ -2848,7 +2851,7 @@ function clearStairsLandingZone(dungeon){
     }
 
     function estimateVectorMazeWallNormal(d, x, y, r, fallbackX=1, fallbackY=0){
-      const inset = Math.max(6, r + 2);
+      const inset = Math.max(6, r + 2, ROOM_COLLISION_INSET_PX);
       function rotateLocal(dx, dy, rot){
         const c = Math.cos(-rot), s = Math.sin(-rot);
         return {x: dx*c - dy*s, y: dx*s + dy*c};
@@ -2923,7 +2926,7 @@ function clearStairsLandingZone(dungeon){
       }
       if (d.mazeSegments) {
         for (const seg of d.mazeSegments) {
-          const radius = Math.max(8, seg.thickness * 0.5 - inset);
+          const radius = Math.max(8, seg.thickness * 0.5 - Math.max(inset, HALL_COLLISION_INSET_PX));
           const cp = closestPointOnSegment(x, y, seg.x1, seg.y1, seg.x2, seg.y2);
           const dx = x - cp.x;
           const dy = y - cp.y;
@@ -2970,7 +2973,7 @@ function clearStairsLandingZone(dungeon){
     }
 
     function canOccupyVectorMaze(d, x, y, r){
-      const inset = Math.max(6, r + 2);
+      const inset = Math.max(6, r + 2, ROOM_COLLISION_INSET_PX);
 
       function rotateLocal(dx, dy, rot){
         const c = Math.cos(-rot), s = Math.sin(-rot);
@@ -3023,7 +3026,7 @@ function clearStairsLandingZone(dungeon){
       }
       if (d.mazeSegments) {
         for (const seg of d.mazeSegments) {
-          const allowance = Math.max(8, seg.thickness * 0.5 - inset);
+          const allowance = Math.max(8, seg.thickness * 0.5 - Math.max(inset, HALL_COLLISION_INSET_PX));
           if (pointSegmentDistance(x, y, seg.x1, seg.y1, seg.x2, seg.y2) <= allowance) return true;
         }
       }
