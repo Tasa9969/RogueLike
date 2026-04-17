@@ -1,4 +1,4 @@
-<!-- ver. 0.5.96-magic-star-rework -->
+<!-- ver. 0.5.97-magic-drop-boost -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.96-magic-star-rework</div>
+  <div id="versionTag">ver. 0.5.97-magic-drop-boost</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2646,7 +2646,7 @@ function clearStairsLandingZone(dungeon){
 
     function spawnChestLoot(x, y){
       const count = randi(1, 5);
-      const lootKinds = ['heal','sword','bow','antidote','mushroom'];
+      const lootKinds = ['heal','sword','bow','bow','antidote','mushroom'];
       for (let i = 0; i < count; i++) {
         const kind = lootKinds[randi(0, lootKinds.length - 1)];
         const ang = rand(0, Math.PI * 2);
@@ -3967,8 +3967,8 @@ function clearStairsLandingZone(dungeon){
     }
 
     function maybeDropWeapon(x,y){
-      if (Math.random() < 0.18) {
-        const kind = Math.random() < 0.5 ? 'sword' : 'bow';
+      if (Math.random() < 0.28) {
+        const kind = Math.random() < 0.35 ? 'sword' : 'bow';
         const swordTiers = ['copper','iron','silver','flame','lizard','gold'];
         const bowTiers = ['copper','silver','gold'];
         const tier = kind === 'sword'
