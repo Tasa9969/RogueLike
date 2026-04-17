@@ -1,4 +1,4 @@
-<!-- ver. 0.5.89-corridor-deeper-join -->
+<!-- ver. 0.5.90-debug-u -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.89-corridor-deeper-join</div>
+  <div id="versionTag">ver. 0.5.90-debug-u</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -542,10 +542,11 @@
 
     addEventListener('keydown', e => {
       const lower = e.key.toLowerCase();
-      if (lower === 'r') init();
-      if ((e.key === 'D' || (lower === 'd' && e.shiftKey)) && !e.repeat && state) {
+      if (lower === 'r') init();      if ((e.key === 'U' || lower === 'u') && !e.repeat && state) {
         state.player.invincible = !state.player.invincible;
-        showOverlay(state.player.invincible ? 'DEBUG\nINVINCIBLE ON' : 'DEBUG\nINVINCIBLE OFF', { duration: 900 });
+        showOverlay(state.player.invincible ? 'DEBUG
+INVINCIBLE ON' : 'DEBUG
+INVINCIBLE OFF', { duration: 900 });
       }
       if (lower === 'p' && state) {
         state.paused = !state.paused;
