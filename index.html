@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.99-homing-shell-battery</div>
+  <div id="versionTag">ver. 0.6.00-homing-missile-rush</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -224,7 +224,7 @@
     // Debug / tuning knobs
     // ------------------------------
     // 開始階。検証用にここを書き換える。
-    const START_FLOOR = 18;
+    const START_FLOOR = 19;
     const ROOM_JOIN_INSET_TILES = 2.8;
     const ROOM_COLLISION_INSET_PX = 14;
     const HALL_COLLISION_INSET_PX = 14;
@@ -2810,32 +2810,34 @@ function clearStairsLandingZone(dungeon){
       const tier = Math.min(3, Math.floor(t * 4));
       const colors = ['#ffb3b3', '#ff9a4d', '#b11226', '#6f0d12'];
       const accents = ['#ffd7d7', '#ffd0a8', '#ff6b6b', '#ff9a9a'];
+      const playerSpeed = playerMaxSpeedForFloor(floor);
       const enemy = {
         type: 'homingBattery',
-        x, y, vx:0, vy:0, angle:0, lastContact:0, lastShot:0,
+        x, y, vx:0, vy:0, angle:-Math.PI * 0.5, lastContact:0, lastShot:0,
         damageFlash:0, dead:false, deathAnim:0, hpBarVisible:false,
-        patrolSeed: 0, anchorX:x, anchorY:y, dormant:false,
-        name:'誘導砲台', englishName:'Homing Battery',
-        shape:'turret-convex',
+        patrolSeed: rand(0, Math.PI * 2), anchorX:x, anchorY:y, dormant:false,
+        name:'誘導ミサイル', englishName:'Homing Missile',
+        shape:'missile',
         color:colors[tier],
         accent:accents[tier],
-        r:18 + tier,
-        hpMax: Math.round(26 + floor * 0.95),
-        hp: Math.round(26 + floor * 0.95),
+        r:13 + tier,
+        hpMax: Math.round(18 + floor * 0.72),
+        hp: Math.round(18 + floor * 0.72),
         attack: Math.round(20 + 30 * t),
-        defense: 2 + tier,
-        mass: 999,
-        accel: 0,
-        maxSpeed: 0,
-        turret: true,
-        ranged: true,
-        projectileKind:'homingShell',
-        targeting:'direct',
-        shotEvery: Math.max(0.55, 2.4 - t * 1.05),
-        projectileSpeed: playerMaxSpeedForFloor(floor),
-        homingShellSpeed: playerMaxSpeedForFloor(floor) * (1 + 2 * t),
-        homingShellAccel: 180 + 320 * t,
-        homingShellRange: 220 + 140 * t,
+        defense: 1 + tier,
+        mass: 1.6,
+        accel: 120 + 170 * t,
+        maxSpeed: playerSpeed * (1 + 2 * t),
+        turret: false,
+        ranged: false,
+        ai: 'homingMissile',
+        detectionRange: 220 + 100 * t,
+        homingRange: 300 + 110 * t,
+        turnRate: 1.8 + 1.15 * t,
+        launchAccel: 180 + 260 * t,
+        cruiseDrag: 0.992,
+        missileState: 'idle',
+        phasesWalls: false,
       };
       enemy.gold = goldValue(enemy);
       return enemy;
@@ -3217,6 +3219,21 @@ function clearStairsLandingZone(dungeon){
       return true;
     }
 
+
+    function hasClearShotBetween(x1, y1, x2, y2, probeRadius = 6){
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const dist = Math.hypot(dx, dy);
+      const steps = Math.max(2, Math.ceil(dist / 18));
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        const px = x1 + dx * t;
+        const py = y1 + dy * t;
+        if (!canMoveCircle(px, py, probeRadius)) return false;
+      }
+      return true;
+    }
+
     function reflectVelocityAgainstNormal(body, normal) {
       const bounce = 2 / 3;
       const n = norm(normal && Number.isFinite(normal.x) ? normal.x : 1, normal && Number.isFinite(normal.y) ? normal.y : 0);
@@ -3382,6 +3399,63 @@ function clearStairsLandingZone(dungeon){
         if (e.dead) continue;
         e.damageFlash = Math.max(0, e.damageFlash - dt*4);
         const d = dist(e,p);
+        if (e.ai === 'homingMissile') {
+          const toPlayerX = p.x - e.x;
+          const toPlayerY = p.y - e.y;
+          const distToPlayer = Math.hypot(toPlayerX, toPlayerY) || 0.0001;
+          const seesPlayer = distToPlayer <= (e.homingRange || 320) && hasClearShotBetween(e.x, e.y, p.x, p.y, Math.max(4, e.r * 0.28));
+          if (e.missileState === 'idle' && distToPlayer <= (e.detectionRange || 220)) {
+            e.missileState = seesPlayer ? 'attack' : 'approach';
+          } else if (e.missileState === 'approach' && seesPlayer) {
+            e.missileState = 'attack';
+          } else if (e.missileState === 'attack' && !seesPlayer && distToPlayer > (e.homingRange || 320) * 1.15) {
+            e.missileState = 'approach';
+          }
+
+          if (e.missileState === 'idle') {
+            e.vx *= 0.94;
+            e.vy *= 0.94;
+          } else if (e.missileState === 'approach') {
+            const desired = norm(toPlayerX, toPlayerY);
+            const boost = (e.accel || 0) * 0.55;
+            e.vx += desired.x * boost * dt;
+            e.vy += desired.y * boost * dt;
+          } else {
+            const desired = norm(toPlayerX + p.vx * 0.22, toPlayerY + p.vy * 0.22);
+            const current = norm(e.vx || desired.x, e.vy || desired.y);
+            const steer = clamp((e.turnRate || 2.2) * dt, 0, 1);
+            const aim = norm(
+              current.x * (1 - steer) + desired.x * steer,
+              current.y * (1 - steer) + desired.y * steer
+            );
+            const thrust = (e.launchAccel || e.accel || 0);
+            e.vx += aim.x * thrust * dt;
+            e.vy += aim.y * thrust * dt;
+          }
+
+          e.vx *= e.cruiseDrag || 0.992;
+          e.vy *= e.cruiseDrag || 0.992;
+          const missileSpeedCap = clampEnemySpeed(e.maxSpeed || 260);
+          const missileSpeed = len(e.vx, e.vy);
+          if (missileSpeed > missileSpeedCap) {
+            const limited = norm(e.vx, e.vy);
+            e.vx = limited.x * missileSpeedCap;
+            e.vy = limited.y * missileSpeedCap;
+          }
+          if (Math.abs(e.vx) + Math.abs(e.vy) > 1.5) e.angle = Math.atan2(e.vy, e.vx) + Math.PI * 0.5;
+
+          const prevX = e.x, prevY = e.y;
+          moveBody(e, dt);
+          const moved = Math.hypot(e.x - prevX, e.y - prevY);
+          if (moved < 0.3 && e.missileState !== 'idle') {
+            e.hp = 0;
+            e.dead = true;
+            addPastelExplosion(prevX, prevY, 1.15);
+            continue;
+          }
+          continue;
+        }
+
         if (e.turret) {
           const turretAngle = angleTo(e.x, e.y, p.x, p.y);
 
@@ -4745,6 +4819,14 @@ function clearStairsLandingZone(dungeon){
           if(!i) ctx.moveTo(px,py); else ctx.lineTo(px,py);
         }
         ctx.closePath();
+      } else if (shape==='missile') {
+        ctx.moveTo(0, -r*1.45);
+        ctx.lineTo(r*0.6, -r*0.2);
+        ctx.lineTo(r*0.42, r*1.1);
+        ctx.lineTo(0, r*0.72);
+        ctx.lineTo(-r*0.42, r*1.1);
+        ctx.lineTo(-r*0.6, -r*0.2);
+        ctx.closePath();
       } else if (shape==='turret-convex') {
         // 凸型の砲台
         ctx.moveTo(-r*0.95, r*0.75);
@@ -4884,6 +4966,24 @@ function clearStairsLandingZone(dungeon){
         ctx.lineTo(-r*0.7,-r*0.75);
         ctx.lineTo(-r,r*0.8);
         ctx.lineTo(r,r*0.8);
+        ctx.closePath(); ctx.fill();
+      } else if (shape==='missile') {
+        ctx.moveTo(0, -r*1.45);
+        ctx.lineTo(r*0.62, -r*0.18);
+        ctx.lineTo(r*0.42, r*0.95);
+        ctx.lineTo(r*0.16, r*0.95);
+        ctx.lineTo(r*0.36, r*1.4);
+        ctx.lineTo(0, r*1.05);
+        ctx.lineTo(-r*0.36, r*1.4);
+        ctx.lineTo(-r*0.16, r*0.95);
+        ctx.lineTo(-r*0.42, r*0.95);
+        ctx.lineTo(-r*0.62, -r*0.18);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.moveTo(0, -r*1.05);
+        ctx.lineTo(r*0.18, -r*0.2);
+        ctx.lineTo(-r*0.18, -r*0.2);
         ctx.closePath(); ctx.fill();
       } else if (shape==='cube') {
         ctx.rect(-r*0.8,-r*0.8,r*1.6,r*1.6); ctx.fill();
