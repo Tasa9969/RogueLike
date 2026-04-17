@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.97-magic-drop-boost</div>
+  <div id="versionTag">ver. 0.5.98-magic-power-rebalance</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -708,11 +708,45 @@
     }
 
     function magicDamageFromPoints(points){
-      if (points >= 160) return 7;
-      if (points >= 80) return 5;
-      if (points >= 40) return 4;
-      if (points >= 15) return 3;
-      return 2;
+      const p = Math.max(0, points || 0);
+      const reward = magicRewardMultiplier(p);
+      const previewCore = 10 + Math.pow(p, 0.82) * 1.45;
+      return Math.round(previewCore * reward);
+    }
+
+    function magicRewardMultiplier(points){
+      if (points >= 1500) return 1.75;
+      if (points >= 1000) return 1.58;
+      if (points >= 700) return 1.42;
+      if (points >= 400) return 1.28;
+      if (points >= 250) return 1.15;
+      if (points >= 120) return 1.06;
+      return 1.0;
+    }
+
+    function computeMagicDamage(points, enemy){
+      const p = Math.max(0, points || 0);
+      const reward = magicRewardMultiplier(p);
+      const pointCore = 10 + Math.pow(p, 0.82) * 1.45;
+      const hpAssist = (enemy && enemy.hpMax ? enemy.hpMax : 0) * ((enemy && enemy.boss) ? 0.045 : 0.16);
+      const raw = (pointCore + hpAssist) * reward;
+
+      const logScale = Math.log2(p + 1);
+      const minRatio = (enemy && enemy.boss) ? 0.08 : 0.32;
+      const maxRatio = (enemy && enemy.boss)
+        ? Math.min(0.20, 0.10 + logScale * 0.011)
+        : Math.min(0.98, 0.55 + logScale * 0.05);
+
+      const hpMax = Math.max(1, (enemy && enemy.hpMax) || 1);
+      const minDamage = hpMax * minRatio;
+      const maxDamage = hpMax * maxRatio;
+      return Math.round(clamp(raw, minDamage, maxDamage));
+    }
+
+    function computeMagicStructureDamage(points){
+      const p = Math.max(0, points || 0);
+      const reward = magicRewardMultiplier(p);
+      return Math.round((8 + Math.pow(p, 0.78) * 0.95) * reward);
     }
 
     function floorMagicBonus(floor){
@@ -742,7 +776,9 @@
       bow.label = magicLabelFromPoints(effectivePoints);
       bow.baseDamage = magicDamageFromPoints(effectivePoints);
       bow.damageMultiplier = openingMagicDamageMultiplier(floor);
-      bow.damage = bow.baseDamage * bow.damageMultiplier * MAGIC_GLOBAL_DAMAGE_MULTIPLIER;
+      bow.damage = computeMagicStructureDamage(effectivePoints);
+      bow.previewDamage = bow.baseDamage;
+      bow.rewardMultiplier = magicRewardMultiplier(effectivePoints);
       bow.speed = 340 + Math.min(55, effectivePoints * 0.35);
       bow.cooldown = Math.max(0.55, 0.92 - Math.min(0.27, effectivePoints * 0.0022));
       return bow;
@@ -3539,7 +3575,8 @@ function clearStairsLandingZone(dungeon){
         x:p.x+dir.x*18, y:p.y+dir.y*18,
         vx:dir.x*p.bow.speed, vy:dir.y*p.bow.speed,
         r:7,
-        damage:p.bow.damage * 3,
+        damage:p.bow.damage,
+        magicPoints:p.bow.effectivePoints || 0,
         blastRadius,
         life:2.1,
         color:tierColor(p.bow.tier)
@@ -3891,7 +3928,10 @@ function clearStairsLandingZone(dungeon){
 
     function damageEnemy(e, dmg, source=null){
       const wasAlive = !e.dead && e.hp > 0;
-      e.hp -= dmg;
+      const appliedDamage = (source && source.kind === 'bomb' && source.from === 'player')
+        ? computeMagicDamage(source.magicPoints || 0, e)
+        : dmg;
+      e.hp -= appliedDamage;
       e.damageFlash = 1;
       e.hpBarVisible = true;
 
