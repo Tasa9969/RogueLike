@@ -1,4 +1,4 @@
-<!-- ver. 0.5.92-debug-u -->
+<!-- ver. 0.5.93-gen-safe-start-floor -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.92-debug-u</div>
+  <div id="versionTag">ver. 0.5.93-gen-safe-start-floor</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -218,6 +218,17 @@
       bowText: document.getElementById('bowText'),
       buffs: document.getElementById('buffs'),
     };
+
+
+    // ------------------------------
+    // Debug / tuning knobs
+    // ------------------------------
+    // 開始階。検証用にここを書き換える。
+    const START_FLOOR = 1;
+    // 迷路生成が長引いた時は枝迷路を打ち切って放射状ダンジョンへフォールバックする。
+    const MAZE_GEN_TIME_BUDGET_MS = 120;
+    const MAZE_GEN_CREATE_ATTEMPTS = 3;
+    const AUDIO_POOL_LIMIT_PER_KIND = 8;
 
     // ------------------------------
     // Audio / SE (embedded mp3)
@@ -281,6 +292,7 @@
       const pool = audioPools[kind];
       let voice = pool.find(a => a.paused || a.ended);
       if (!voice) {
+        if (pool.length >= AUDIO_POOL_LIMIT_PER_KIND) return pool[0];
         voice = pool[0].cloneNode();
         voice.volume = audioVolumes[kind] ?? 1.0;
         pool.push(voice);
@@ -721,6 +733,26 @@
       if (player.bow) refreshMagicWeapon(player.bow, floor);
     }
 
+    function applyStartFloorLoadout(player, floor){
+      if (!player) return;
+      const startFloor = Math.max(1, floor | 0);
+      if (startFloor === 1) {
+        applyPlayerFloorStats(player, startFloor);
+        return;
+      }
+      if (!player.sword) player.sword = makeWeapon('sword', 'gold');
+      player.sword.points = 320;
+      player.sword.tier = swordTierFromPoints(player.sword.points);
+      player.sword.label = swordLabelFromPoints(player.sword.points);
+      player.sword.damage = swordDamageFromPoints(player.sword.points);
+      player.sword.cooldown = Math.max(0.12, 0.40 - Math.min(0.16, (player.sword.points || 0) * 0.001));
+      if (!player.bow) player.bow = makeWeapon('bow', 'gold');
+      player.bow.points = 100;
+      player.bow.arrows = 100;
+      player.bow.max = UNLIMITED_AMMO_CAP;
+      applyPlayerFloorStats(player, startFloor);
+    }
+
     function createPlayer(){
       const shape = ['circle','square','triangle','diamond'][randi(0,3)];
       return {
@@ -745,6 +777,7 @@
         lastDamageAt: -999,
         cameraKickX: 0,
         cameraKickY: 0,
+        invincible: false,
         key: false,
         sword: {tier:'wood', damage:10 * SWORD_GLOBAL_DAMAGE_MULTIPLIER, durability:Infinity, max:Infinity, cooldown:0.4, last:-9, permanent:true},
         swordInputHeld: false,
@@ -1176,6 +1209,11 @@
       const mazeSegments = [];
       const margin = 6;
       const depth = Math.min(100, Math.max(1, floor|0));
+      const genStartedAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      function mazeGenOverBudget(){
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        return (now - genStartedAt) > MAZE_GEN_TIME_BUDGET_MS;
+      }
       const progress = (depth - 1) / 99;
       const roomPlanBase = 3 + progress * 97;
       const roomPlanWave = Math.sin(depth * 0.23 - 0.7) * 5 + Math.sin(depth * 0.071 + 1.4) * 2.5;
@@ -1531,16 +1569,18 @@
       function corridorLengthProfileForFloor(depth){
         const capped = Math.min(30, Math.max(1, depth|0));
         const t30 = (capped - 1) / 29;
-        const wave = Math.sin(capped * 0.41 - 0.9) * (1.4 + t30 * 2.0) + Math.sin(capped * 0.16 + 0.8) * (0.7 + t30 * 1.3);
-        const longCap = clamp(22 + (50 - 22) * t30 + wave, 22, 50);
+        const wave = Math.sin(capped * 0.41 - 0.9) * (1.1 + t30 * 1.6) + Math.sin(capped * 0.16 + 0.8) * (0.6 + t30 * 1.0);
+        const longCap = clamp(22 + (50 - 22) * t30 + wave, 22, 46);
         const mediumCap = clamp(13.5 + (31.5 - 13.5) * t30 + wave * 0.65, 13.5, Math.max(14.5, longCap - 6));
         const shortCap = clamp(6.5 + (16.0 - 6.5) * t30 + wave * 0.35, 6.5, Math.max(8.0, mediumCap - 4));
         return { shortCap, mediumCap, longCap };
       }
 
       function tryCreateBranchRoom(anchor){
+        if (mazeGenOverBudget()) return false;
         const corridorProfile = corridorLengthProfileForFloor(depth);
-        for(let attempt=0; attempt<28; attempt++){
+        for(let attempt=0; attempt<18; attempt++){
+          if (mazeGenOverBudget()) return false;
           const angle = rand(-Math.PI, Math.PI);
           const ux = Math.cos(angle);
           const uy = Math.sin(angle);
@@ -1603,14 +1643,14 @@
       commitNode(startNode);
 
       let remainingAttempts = plannedRooms - 1;
-      while (remainingAttempts > 0){
+      while (remainingAttempts > 0 && !mazeGenOverBudget()){
         const anchor = mazeNodes[randi(0, mazeNodes.length - 1)];
         tryCreateBranchRoom(anchor);
         remainingAttempts--;
       }
 
       let guaranteePasses = 0;
-      while (mazeNodes.length < guaranteedRooms && guaranteePasses < 48){
+      while (mazeNodes.length < guaranteedRooms && guaranteePasses < 32 && !mazeGenOverBudget()){
         const anchor = mazeNodes[randi(0, mazeNodes.length - 1)];
         tryCreateBranchRoom(anchor);
         guaranteePasses++;
@@ -1654,6 +1694,7 @@
       }
 
       pruneUnreachableNodes();
+      if (mazeGenOverBudget() || rooms.length < guaranteedRooms) return null;
       return {tiles, rooms, mazeNodes, mazeSegments, layout:'branch-safe', vectorMaze:true};
     }
 
@@ -2134,8 +2175,12 @@ function clearStairsLandingZone(dungeon){
       }
 
       let normalized = null;
-      for (let attempt = 0; attempt < 8 && !normalized; attempt++) {
-        normalized = normalizeDungeonBuild(createMazeDungeon(w, h, safeFloor));
+      for (let attempt = 0; attempt < MAZE_GEN_CREATE_ATTEMPTS && !normalized; attempt++) {
+        try {
+          normalized = normalizeDungeonBuild(createMazeDungeon(w, h, safeFloor));
+        } catch (_) {
+          normalized = null;
+        }
       }
 
       if (!normalized) {
@@ -2723,7 +2768,7 @@ function clearStairsLandingZone(dungeon){
       overlay.style.opacity = '0';
       overlay.className = '';
       state = {
-        floor: 1,
+        floor: Math.max(1, START_FLOOR | 0),
         t: 0,
         player: createPlayer(),
         dungeon: null,
@@ -2743,8 +2788,9 @@ function clearStairsLandingZone(dungeon){
         isGeneratingFloor: false,
         pendingFloorAdvance: false,
       };
-      refreshMagicWeapon(state.player.bow, state.floor);
+      applyStartFloorLoadout(state.player, state.floor);
       spawnFloor(state);
+      if (typeof performance !== 'undefined' && performance.now) last = performance.now();
     }
 
     function pointSegmentDistance(px, py, x1, y1, x2, y2){
