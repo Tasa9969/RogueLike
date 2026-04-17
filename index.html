@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.98-magic-power-rebalance</div>
+  <div id="versionTag">ver. 0.5.99-homing-shell-battery</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2468,6 +2468,17 @@ function clearStairsLandingZone(dungeon){
         return Math.max(3, Math.min(30, Math.round(base + wave)));
       }
 
+
+      function homingBatteryTargetCount(floor) {
+        const f = Math.max(1, floor || 1);
+        if (f < 20) return 0;
+        if (f >= 100) return 30;
+        const t = (f - 20) / 80;
+        const base = 3 + 27 * t;
+        const wave = Math.sin(f * 0.42 + 0.8) * 1.8 + Math.sin(f * 0.13 + 1.7) * 1.15;
+        return Math.max(3, Math.min(30, Math.round(base + wave)));
+      }
+
       function turretRoomCapacity(room) {
         const area = Math.max(1, (room.w || 4) * (room.h || 4));
         if (area >= 90) return 3;
@@ -2566,6 +2577,45 @@ function clearStairsLandingZone(dungeon){
         return placedTotal;
       }
 
+
+      function spawnHomingBatteryGroupInRoom(room, floor, encounterTheme, forcedCount = null) {
+        const count = Math.max(1, Math.min(6, forcedCount ?? 1));
+        const points = turretPatternPoints(room, count, encounterTheme);
+        const centerX = room.cx * TILE;
+        const centerY = room.cy * TILE;
+        const minX = (room.x + 1.2) * TILE;
+        const maxX = (room.x + room.w - 1.2) * TILE;
+        const minY = (room.y + 1.2) * TILE;
+        const maxY = (room.y + room.h - 1.2) * TILE;
+        let placed = 0;
+        for (const pt of points) {
+          const tx = clamp(centerX + pt.x, minX, maxX);
+          const ty = clamp(centerY + pt.y, minY, maxY);
+          if (!isFarFromStartSpawn(tx, ty, state.dungeon.start)) continue;
+          enemies.push(makeHomingBatteryEnemy(tx, ty, floor));
+          placed++;
+        }
+        if (!placed) {
+          const tx = clamp(centerX, minX, maxX);
+          const ty = clamp(centerY, minY, maxY);
+          if (isFarFromStartSpawn(tx, ty, state.dungeon.start)) enemies.push(makeHomingBatteryEnemy(tx, ty, floor));
+        }
+      }
+
+      function spawnHomingBatteryGroupsForFloor(roomPool, floor, encounterTheme) {
+        const totalTurrets = homingBatteryTargetCount(floor);
+        if (totalTurrets <= 0 || !roomPool.length) return 0;
+        const planned = distributeTurretsAcrossRooms(roomPool, totalTurrets);
+        let placedTotal = 0;
+        for (const slot of planned) {
+          if (!slot.count || !slot.room) continue;
+          const before = enemies.length;
+          spawnHomingBatteryGroupInRoom(slot.room, floor, encounterTheme, slot.count);
+          placedTotal += Math.max(0, enemies.length - before);
+        }
+        return placedTotal;
+      }
+
       // 各フロアで出現する7種の通常敵を最低1体ずつ配置して、顔ぶれを保証する。
       const seededTypes = availableEnemyTypesForFloor(state.floor).slice(0, ENEMY_WINDOW_SIZE - 1);
       const spawnRooms = eligibleRoomsForEncounters(rooms);
@@ -2612,6 +2662,7 @@ function clearStairsLandingZone(dungeon){
       }
 
       spawnTurretGroupsForFloor(roomPool, state.floor, encounterTheme);
+      spawnHomingBatteryGroupsForFloor(roomPool, state.floor, encounterTheme);
 
       if (state.floor >= 4 && roomPool.length) {
         const miniCount = state.floor >= 18 ? 2 : 1;
@@ -2748,6 +2799,43 @@ function clearStairsLandingZone(dungeon){
         targeting:'direct',
         shotEvery: Math.max(0.22, shotEveryBase - floor * 0.005),
         projectileSpeed: clampEnemySpeed(projSpeed),
+      };
+      enemy.gold = goldValue(enemy);
+      return enemy;
+    }
+
+
+    function makeHomingBatteryEnemy(x, y, floor){
+      const t = clamp((Math.max(20, floor) - 20) / 80, 0, 1);
+      const tier = Math.min(3, Math.floor(t * 4));
+      const colors = ['#ffb3b3', '#ff9a4d', '#b11226', '#6f0d12'];
+      const accents = ['#ffd7d7', '#ffd0a8', '#ff6b6b', '#ff9a9a'];
+      const enemy = {
+        type: 'homingBattery',
+        x, y, vx:0, vy:0, angle:0, lastContact:0, lastShot:0,
+        damageFlash:0, dead:false, deathAnim:0, hpBarVisible:false,
+        patrolSeed: 0, anchorX:x, anchorY:y, dormant:false,
+        name:'誘導砲台', englishName:'Homing Battery',
+        shape:'turret-convex',
+        color:colors[tier],
+        accent:accents[tier],
+        r:18 + tier,
+        hpMax: Math.round(26 + floor * 0.95),
+        hp: Math.round(26 + floor * 0.95),
+        attack: Math.round(20 + 30 * t),
+        defense: 2 + tier,
+        mass: 999,
+        accel: 0,
+        maxSpeed: 0,
+        turret: true,
+        ranged: true,
+        projectileKind:'homingShell',
+        targeting:'direct',
+        shotEvery: Math.max(0.55, 2.4 - t * 1.05),
+        projectileSpeed: playerMaxSpeedForFloor(floor),
+        homingShellSpeed: playerMaxSpeedForFloor(floor) * (1 + 2 * t),
+        homingShellAccel: 180 + 320 * t,
+        homingShellRange: 220 + 140 * t,
       };
       enemy.gold = goldValue(enemy);
       return enemy;
@@ -3312,13 +3400,35 @@ function clearStairsLandingZone(dungeon){
             const spawnX = e.x + dir.x * tipOffset;
             const spawnY = e.y + dir.y * tipOffset;
 
-            state.projectiles.push({
-              from:'enemy',
-              x:spawnX, y:spawnY,
-              vx:dir.x*(e.projectileSpeed || 220), vy:dir.y*(e.projectileSpeed || 220),
-              r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack)), life:4,
-              color:e.accent || '#ff9b6a', poison:!!e.poison
-            });
+            if (e.projectileKind === 'homingShell') {
+              const startSpeed = e.projectileSpeed || playerMaxSpeedForFloor(state.floor);
+              state.projectiles.push({
+                from:'enemy',
+                kind:'homingShell',
+                x:spawnX, y:spawnY,
+                vx:dir.x * startSpeed, vy:dir.y * startSpeed,
+                speed:startSpeed,
+                maxSpeed:e.homingShellSpeed || startSpeed,
+                accel:e.homingShellAccel || 220,
+                turnRate:2.2,
+                homingRange:e.homingShellRange || 260,
+                r:e.boss ? 10 : 8,
+                damage:Math.max(1, Math.round(e.attack)),
+                life:5.4,
+                color:e.color || '#ff7a7a',
+                accent:e.accent || '#ffd7d7',
+                poison:false,
+                angle:turretAngle + Math.PI * 0.5,
+              });
+            } else {
+              state.projectiles.push({
+                from:'enemy',
+                x:spawnX, y:spawnY,
+                vx:dir.x*(e.projectileSpeed || 220), vy:dir.y*(e.projectileSpeed || 220),
+                r:e.boss?8:7, damage:Math.max(1, Math.round(e.attack)), life:4,
+                color:e.accent || '#ff9b6a', poison:!!e.poison
+              });
+            }
           }
           continue;
         }
@@ -3522,13 +3632,31 @@ function clearStairsLandingZone(dungeon){
       // 飛び道具
       for (const pr of state.projectiles) {
         pr.life -= dt;
+        if (pr.from === 'enemy' && pr.kind === 'homingShell') {
+          const toPlayerX = p.x - pr.x;
+          const toPlayerY = p.y - pr.y;
+          const distToPlayer = Math.hypot(toPlayerX, toPlayerY) || 0.0001;
+          if (distToPlayer <= (pr.homingRange || 260)) {
+            const desired = {x: toPlayerX / distToPlayer, y: toPlayerY / distToPlayer};
+            const current = norm(pr.vx, pr.vy);
+            const steer = clamp((pr.turnRate || 2.2) * dt, 0, 1);
+            const aim = norm(
+              current.x * (1 - steer) + desired.x * steer,
+              current.y * (1 - steer) + desired.y * steer
+            );
+            pr.speed = Math.min(pr.maxSpeed || pr.speed || 0, (pr.speed || 0) + (pr.accel || 0) * dt);
+            pr.vx = aim.x * pr.speed;
+            pr.vy = aim.y * pr.speed;
+          }
+          pr.angle = Math.atan2(pr.vy, pr.vx) + Math.PI * 0.5;
+        }
         pr.x += pr.vx*dt;
         pr.y += pr.vy*dt;
         if (!canMoveCircle(pr.x, pr.y, pr.r)) {
           if (pr.from === 'player' && pr.kind === 'bomb') {
             explodeMagicProjectile(pr);
           } else {
-            addPastelExplosion(pr.x, pr.y, 0.9);
+            addPastelExplosion(pr.x, pr.y, pr.kind === 'homingShell' ? 1.1 : 0.9);
             pr.life = -1;
           }
         }
@@ -4396,6 +4524,35 @@ function clearStairsLandingZone(dungeon){
           ctx.beginPath();
           ctx.arc(bombX, bombY, pr.r + 3, 0, Math.PI*2);
           ctx.stroke();
+          ctx.restore();
+          continue;
+        }
+        if (pr.kind === 'homingShell') {
+          const shellX = pr.x - cam.x, shellY = pr.y - cam.y;
+          ctx.save();
+          ctx.translate(shellX, shellY);
+          ctx.rotate(pr.angle || 0);
+          ctx.fillStyle = pr.color || '#ff7a7a';
+          ctx.beginPath();
+          ctx.moveTo(0, -pr.r * 1.45);
+          ctx.quadraticCurveTo(pr.r * 0.62, -pr.r * 0.42, pr.r * 0.56, pr.r * 1.15);
+          ctx.lineTo(-pr.r * 0.56, pr.r * 1.15);
+          ctx.quadraticCurveTo(-pr.r * 0.62, -pr.r * 0.42, 0, -pr.r * 1.45);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = pr.accent || '#ffd7d7';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, -pr.r * 1.0);
+          ctx.lineTo(0, pr.r * 0.95);
+          ctx.stroke();
+          ctx.fillStyle = 'rgba(255,210,210,0.7)';
+          ctx.beginPath();
+          ctx.moveTo(-pr.r * 0.34, pr.r * 0.65);
+          ctx.lineTo(0, pr.r * 1.48);
+          ctx.lineTo(pr.r * 0.34, pr.r * 0.65);
+          ctx.closePath();
+          ctx.fill();
           ctx.restore();
           continue;
         }
