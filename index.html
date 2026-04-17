@@ -1,4 +1,4 @@
-<!-- ver. 0.5.91-debug-u -->
+<!-- ver. 0.5.92-debug-u -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.91-debug-u</div>
+  <div id="versionTag">ver. 0.5.92-debug-u</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -1528,26 +1528,32 @@
         return node;
       }
 
+      function corridorLengthProfileForFloor(depth){
+        const capped = Math.min(30, Math.max(1, depth|0));
+        const t30 = (capped - 1) / 29;
+        const wave = Math.sin(capped * 0.41 - 0.9) * (1.4 + t30 * 2.0) + Math.sin(capped * 0.16 + 0.8) * (0.7 + t30 * 1.3);
+        const longCap = clamp(22 + (50 - 22) * t30 + wave, 22, 50);
+        const mediumCap = clamp(13.5 + (31.5 - 13.5) * t30 + wave * 0.65, 13.5, Math.max(14.5, longCap - 6));
+        const shortCap = clamp(6.5 + (16.0 - 6.5) * t30 + wave * 0.35, 6.5, Math.max(8.0, mediumCap - 4));
+        return { shortCap, mediumCap, longCap };
+      }
+
       function tryCreateBranchRoom(anchor){
-        const axisDirs = [
-          {x:1, y:0},{x:-1, y:0},{x:0, y:1},{x:0, y:-1},
-          {x:Math.SQRT1_2, y:Math.SQRT1_2},{x:Math.SQRT1_2, y:-Math.SQRT1_2},
-          {x:-Math.SQRT1_2, y:Math.SQRT1_2},{x:-Math.SQRT1_2, y:-Math.SQRT1_2},
-        ];
+        const corridorProfile = corridorLengthProfileForFloor(depth);
         for(let attempt=0; attempt<28; attempt++){
-          const dir = axisDirs[randi(0, axisDirs.length - 1)];
-          const len = Math.hypot(dir.x, dir.y) || 1;
-          const ux = dir.x / len;
-          const uy = dir.y / len;
+          const angle = rand(-Math.PI, Math.PI);
+          const ux = Math.cos(angle);
+          const uy = Math.sin(angle);
           const stretchRoll = Math.random();
           const hallLen = stretchRoll < 0.18
-            ? rand(3.5, 6.5 + progress * 6.0)
+            ? rand(3.5, corridorProfile.shortCap)
             : stretchRoll < 0.78
-              ? rand(6.0, 13.5 + progress * 13.0)
-              : rand(11.0, 22.0 + progress * 18.0);
-          const sideJitter = rand(-2.8, 2.8) * (Math.random() < 0.55 ? 1 : 0.35);
+              ? rand(6.0, corridorProfile.mediumCap)
+              : rand(11.0, corridorProfile.longCap);
+          const lateralSwing = 0.7 + Math.min(1.6, hallLen / 17);
+          const sideJitter = rand(-2.8, 2.8) * lateralSwing * (Math.random() < 0.55 ? 1 : 0.35);
           const isHub = Math.random() < 0.12 + progress * 0.16;
-          const anchorExit = nodeBoundaryPoint(anchor, ux, uy, -1.35);
+          const anchorExit = nodeBoundaryPoint(anchor, ux, uy, -1.65);
           const hallEnd = {
             x: anchorExit.x + ux * hallLen + (-uy) * sideJitter,
             y: anchorExit.y + uy * hallLen + ( ux) * sideJitter,
@@ -1559,7 +1565,7 @@
           finalizeNodePlacement(node);
 
           const corridorStart = nodeBoundaryPoint(anchor, ux, uy, -1.35);
-          const corridorEnd = nodeBoundaryPoint(node, -ux, -uy, -1.25);
+          const corridorEnd = nodeBoundaryPoint(node, -ux, -uy, -1.55);
           const hallRadiusTiles = 1.05;
           if (!canPlaceNode(node)) continue;
           if (segmentHitsExistingStructure(corridorStart, corridorEnd, hallRadiusTiles, anchor, node)) continue;
