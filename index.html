@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.6.01-homing-missile-fix</div>
+  <div id="versionTag">ver. 0.6.02-homing-missile-steering</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -3403,38 +3403,35 @@ function clearStairsLandingZone(dungeon){
           const toPlayerX = p.x - e.x;
           const toPlayerY = p.y - e.y;
           const distToPlayer = Math.hypot(toPlayerX, toPlayerY) || 0.0001;
-          const seesPlayer = distToPlayer <= (e.homingRange || 320) && hasClearShotBetween(e.x, e.y, p.x, p.y, Math.max(4, e.r * 0.28));
-          if (e.missileState === 'idle' && distToPlayer <= (e.detectionRange || 220)) {
-            e.missileState = seesPlayer ? 'attack' : 'approach';
-          } else if (e.missileState === 'approach' && seesPlayer) {
+          const detected = distToPlayer <= (e.detectionRange || 220);
+          if (e.missileState === 'idle' && detected) {
             e.missileState = 'attack';
-          } else if (e.missileState === 'attack' && !seesPlayer && distToPlayer > (e.homingRange || 320) * 1.15) {
-            e.missileState = 'approach';
           }
 
           if (e.missileState === 'idle') {
-            e.vx *= 0.94;
-            e.vy *= 0.94;
-          } else if (e.missileState === 'approach') {
-            const desired = norm(toPlayerX, toPlayerY);
-            const boost = (e.accel || 0) * 0.55;
-            e.vx += desired.x * boost * dt;
-            e.vy += desired.y * boost * dt;
+            e.vx *= 0.9;
+            e.vy *= 0.9;
           } else {
-            const desired = norm(toPlayerX + p.vx * 0.22, toPlayerY + p.vy * 0.22);
-            const current = norm(e.vx || desired.x, e.vy || desired.y);
-            const steer = clamp((e.turnRate || 2.2) * dt, 0, 1);
+            const lead = Math.min(0.42, 0.18 + distToPlayer / 900);
+            const desired = norm(toPlayerX + p.vx * lead, toPlayerY + p.vy * lead);
+            const curLen = Math.hypot(e.vx, e.vy);
+            const current = curLen > 0.001 ? {x:e.vx / curLen, y:e.vy / curLen} : desired;
+            const steer = clamp((e.turnRate || 2.6) * dt * 2.4, 0.08, 0.48);
             const aim = norm(
               current.x * (1 - steer) + desired.x * steer,
               current.y * (1 - steer) + desired.y * steer
             );
-            const thrust = (e.launchAccel || e.accel || 0);
+            const thrust = (e.launchAccel || e.accel || 0) * (curLen < 24 ? 1.25 : 1.0);
             e.vx += aim.x * thrust * dt;
             e.vy += aim.y * thrust * dt;
+
+            const directPull = (e.accel || 0) * 0.38;
+            e.vx += desired.x * directPull * dt;
+            e.vy += desired.y * directPull * dt;
           }
 
-          e.vx *= e.cruiseDrag || 0.992;
-          e.vy *= e.cruiseDrag || 0.992;
+          e.vx *= e.cruiseDrag || 0.995;
+          e.vy *= e.cruiseDrag || 0.995;
           const missileSpeedCap = clampEnemySpeed(e.maxSpeed || 260);
           const missileSpeed = len(e.vx, e.vy);
           if (missileSpeed > missileSpeedCap) {
@@ -3442,9 +3439,8 @@ function clearStairsLandingZone(dungeon){
             e.vx = limited.x * missileSpeedCap;
             e.vy = limited.y * missileSpeedCap;
           }
-          if (Math.abs(e.vx) + Math.abs(e.vy) > 1.5) e.angle = Math.atan2(e.vy, e.vx) + Math.PI * 0.5;
+          if (Math.abs(e.vx) + Math.abs(e.vy) > 0.4) e.angle = Math.atan2(e.vy, e.vx) + Math.PI * 0.5;
 
-          const prevX = e.x, prevY = e.y;
           const nextX = e.x + e.vx * dt;
           const nextY = e.y + e.vy * dt;
           if (!canMoveCircle(nextX, nextY, e.r)) {
