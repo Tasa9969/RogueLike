@@ -1,4 +1,4 @@
-<!-- ver. 0.5.93-gen-safe-start-floor -->
+<!-- ver. 0.5.94-floor-advance-safe -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.5.93-gen-safe-start-floor</div>
+  <div id="versionTag">ver. 0.5.94-floor-advance-safe</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -2152,6 +2152,33 @@ function clearStairsLandingZone(dungeon){
       const w = Math.round(44 + t * 34 + waveA * 4 + waveB * 2);
       const h = Math.round(32 + t * 24 + Math.cos(depth * 0.31) * 3 + waveA * 2);
 
+      function buildAbsoluteSafeDungeon(){
+        const safeW = Math.max(38, Math.min(96, w));
+        const safeH = Math.max(28, Math.min(72, h));
+        const radial = createRadialDungeon(safeW, safeH, safeFloor);
+        const fallbackRooms = (radial.rooms || []).filter(r => r && Number.isFinite(r.cx) && Number.isFinite(r.cy));
+        if (fallbackRooms.length < 2) {
+          throw new Error('Absolute fallback dungeon requires at least two rooms');
+        }
+        const startRoom = fallbackRooms[0];
+        const stairsRoom = fallbackRooms[fallbackRooms.length - 1] || startRoom;
+        const start = {x:(startRoom.cx+0.5)*TILE, y:(startRoom.cy+0.5)*TILE};
+        const stairs = {x:(stairsRoom.cx+0.5)*TILE, y:(stairsRoom.cy+0.5)*TILE};
+        const dungeon = {
+          w:safeW, h:safeH, tiles:radial.tiles, objects:[], rooms:fallbackRooms,
+          start, stairs, stairsRoom,
+          theme:themeForFloor(safeFloor),
+          layout:radial.layout || 'radial',
+          vectorMaze:false, mazeSegments:[], mazeNodes:[]
+        };
+        ensureDungeonReachability(dungeon);
+        dungeon.stairs = findReachableStairsPosition(dungeon, stairsRoom, stairs);
+        dungeon.objects = scatterDungeonProps(dungeon.tiles, fallbackRooms, startRoom, stairsRoom, safeFloor);
+        clearStairsLandingZone(dungeon);
+        clearMainRouteObstacles(dungeon);
+        return dungeon;
+      }
+
       function normalizeDungeonBuild(built){
         if (!built || !Array.isArray(built.rooms) || !built.tiles) return null;
         const rooms = built.rooms.filter(r => r && Number.isFinite(r.cx) && Number.isFinite(r.cy));
@@ -2184,23 +2211,28 @@ function clearStairsLandingZone(dungeon){
       }
 
       if (!normalized) {
-        const fallback = createRadialDungeon(w, h, safeFloor);
-        const fallbackRooms = (fallback.rooms || []).filter(r => r && Number.isFinite(r.cx) && Number.isFinite(r.cy));
-        const startRoom = fallbackRooms[0];
-        const stairsRoom = fallbackRooms[fallbackRooms.length - 1] || startRoom;
-        if (!startRoom || !stairsRoom) {
-          throw new Error('Failed to build dungeon with at least two rooms');
+        try {
+          const fallback = createRadialDungeon(w, h, safeFloor);
+          const fallbackRooms = (fallback.rooms || []).filter(r => r && Number.isFinite(r.cx) && Number.isFinite(r.cy));
+          const startRoom = fallbackRooms[0];
+          const stairsRoom = fallbackRooms[fallbackRooms.length - 1] || startRoom;
+          if (!startRoom || !stairsRoom) {
+            throw new Error('Failed to build dungeon with at least two rooms');
+          }
+          normalized = {
+            tiles: fallback.tiles,
+            rooms: fallbackRooms.length >= 2 ? fallbackRooms : [startRoom, stairsRoom],
+            startRoom,
+            stairsRoom,
+            layout: fallback.layout || 'radial',
+            vectorMaze: !!fallback.vectorMaze,
+            mazeSegments: fallback.mazeSegments || [],
+            mazeNodes: fallback.mazeNodes || []
+          };
+        } catch (err) {
+          console.error('createDungeon radial fallback failed', err);
+          return buildAbsoluteSafeDungeon();
         }
-        normalized = {
-          tiles: fallback.tiles,
-          rooms: fallbackRooms.length >= 2 ? fallbackRooms : [startRoom, stairsRoom],
-          startRoom,
-          stairsRoom,
-          layout: fallback.layout || 'radial',
-          vectorMaze: !!fallback.vectorMaze,
-          mazeSegments: fallback.mazeSegments || [],
-          mazeNodes: fallback.mazeNodes || []
-        };
       }
 
       const tiles = normalized.tiles;
@@ -2332,8 +2364,8 @@ function clearStairsLandingZone(dungeon){
       return Math.hypot(x - start.x, y - start.y) >= getFloorSafeSpawnRadius();
     }
 
-    function spawnFloor(state){
-      state.dungeon = createDungeon(state.floor);
+    function spawnFloor(state, preparedDungeon=null){
+      state.dungeon = preparedDungeon || createDungeon(state.floor);
       const p = state.player;
       applyPlayerFloorStats(p, state.floor);
       p.x = state.dungeon.start.x;
@@ -4046,13 +4078,34 @@ function clearStairsLandingZone(dungeon){
     function advanceFloorNow(){
       if (state.isGeneratingFloor) return;
       state.isGeneratingFloor = true;
+      const prevFloor = state.floor;
+      const prevDungeon = state.dungeon;
+      const prevKey = !!state.player?.key;
+      const prevStairsConsumed = !!state.stairsConsumed;
       try {
         state.pendingFloorAdvance = false;
-        state.floor++;
+        const nextFloor = prevFloor + 1;
+        let preparedDungeon = null;
+        try {
+          preparedDungeon = createDungeon(nextFloor);
+        } catch (err) {
+          console.error('advanceFloorNow createDungeon failed', err);
+          throw err;
+        }
+        state.floor = nextFloor;
         refreshMagicWeapon(state.player && state.player.bow, state.floor);
         state.player.hp = Math.min(state.player.hpMax, state.player.hp + Math.floor(state.player.hpMax * FLOOR_HEAL_RATIO));
-        spawnFloor(state);
+        spawnFloor(state, preparedDungeon);
         state.floorChangingUntil = state.t + 0.18;
+      } catch (err) {
+        console.error('advanceFloorNow failed', err);
+        state.floor = prevFloor;
+        state.dungeon = prevDungeon;
+        state.pendingFloorAdvance = false;
+        state.floorChangingUntil = 0;
+        state.stairsConsumed = false;
+        if (state.player) state.player.key = true;
+        showOverlay('FLOOR GEN ERROR\nSTAY ON FLOOR', { duration: 1200 });
       } finally {
         state.isGeneratingFloor = false;
       }
