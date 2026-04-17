@@ -369,7 +369,7 @@
     function itemEnglishName(item){
       if (!item) return 'Item';
       if (item.kind === 'sword') return `${titleizeEnemyName(item.tier || 'Wood')} Sword`;
-      if (item.kind === 'bow') return `${titleizeEnemyName(item.tier || 'Copper')} Magic`;
+      if (item.kind === 'bow') return `Magic Star +${item.points || 0}`;
       if (item.kind === 'heal') return item.mult && item.mult > 1 ? `Potion x${item.mult}` : 'Potion';
       return ITEM_DISPLAY_NAMES[item.kind] || 'Item';
     }
@@ -380,7 +380,7 @@
       if (item.kind === 'antidote') return 'Poison Cleared';
       if (item.kind === 'mushroom') return 'Mushroom +1';
       if (item.kind === 'sword') return `Sword Power +${item.points || 0}`;
-      if (item.kind === 'bow') return `Magic Power +${item.points || 0} / Ammo +${item.ammoGain || 0}`;
+      if (item.kind === 'bow') return `Magic +${item.points || 0} / Ammo +${item.ammoGain || item.ammo || 0}`;
       return '';
     }
 
@@ -678,6 +678,33 @@
       if (points >= 160) return 'ゴールド';
       if (points >= 80) return 'シルバー';
       return 'カッパー';
+    }
+
+    const MAGIC_STAR_TABLE = [
+      {ammo:4, points:1},
+      {ammo:8, points:2},
+      {ammo:16, points:3},
+      {ammo:32, points:4},
+      {ammo:64, points:5},
+      {ammo:128, points:6},
+      {ammo:128, points:7},
+      {ammo:256, points:8},
+      {ammo:512, points:9},
+      {ammo:1024, points:10},
+    ];
+    const MAGIC_STAR_BASE_RADIUS = 8;
+    const MAGIC_STAR_SIZE_STEP = 1.10;
+
+    function rollMagicStarReward(){
+      let index = 0;
+      while (index < MAGIC_STAR_TABLE.length - 1 && Math.random() < 0.5) index++;
+      const reward = MAGIC_STAR_TABLE[index];
+      return {
+        level: index + 1,
+        ammo: reward.ammo,
+        points: reward.points,
+        radius: Math.round(MAGIC_STAR_BASE_RADIUS * Math.pow(MAGIC_STAR_SIZE_STEP, index) * 10) / 10,
+      };
     }
 
     function magicDamageFromPoints(points){
@@ -2636,8 +2663,17 @@ function clearStairsLandingZone(dungeon){
           const swordTiers = ['copper','iron','silver','flame','lizard','gold'];
           state.pickups.push({x:lx, y:ly, kind:'sword', tier:swordTiers[randi(0, swordTiers.length-1)], r:8, points:randi(1,5)});
         } else if (kind === 'bow') {
-          const bowTiers = ['copper','silver','gold'];
-          state.pickups.push({x:lx, y:ly, kind:'bow', tier:bowTiers[randi(0, bowTiers.length-1)], r:8, points:randi(1,4)});
+          const reward = rollMagicStarReward();
+          const pickupTier = reward.points >= 8 ? 'gold' : reward.points >= 4 ? 'silver' : 'copper';
+          state.pickups.push({
+            x:lx, y:ly,
+            kind:'bow',
+            tier:pickupTier,
+            r:reward.radius,
+            points:reward.points,
+            ammo:reward.ammo,
+            level:reward.level,
+          });
         } else if (kind === 'antidote') {
           state.pickups.push({x:lx, y:ly, kind:'antidote', r:8});
         } else if (kind === 'mushroom') {
@@ -4030,20 +4066,23 @@ function clearStairsLandingZone(dungeon){
             effectColor = '#ffdba8';
           }
           if (item.kind==='bow') {
-            const pickupBow = makeWeapon('bow', item.tier);
-            const gained = item.points || randi(1, 4);
-            item.ammoGain = pickupBow.arrows;
+            const pickupBow = makeWeapon('bow', item.tier || 'copper');
+            const gained = Math.max(1, item.points || 1);
+            const ammoGain = Math.max(1, item.ammo || pickupBow.arrows || 0);
+            item.ammoGain = ammoGain;
             if (p.bow) {
-              p.bow.arrows += pickupBow.arrows;
+              p.bow.arrows += ammoGain;
               p.bow.max = UNLIMITED_AMMO_CAP;
               p.bow.points = (p.bow.points || 0) + gained;
               refreshMagicWeapon(p.bow, state.floor);
             } else {
               p.bow = pickupBow;
               p.bow.points = gained;
+              p.bow.arrows = ammoGain;
+              p.bow.max = UNLIMITED_AMMO_CAP;
               refreshMagicWeapon(p.bow, state.floor);
             }
-            effectText = `Magic +${gained} / Ammo +${pickupBow.arrows}`;
+            effectText = `Magic +${gained} / Ammo +${ammoGain}`;
             effectColor = '#fff099';
           }
           addFloatingText(p.x, p.y - 22, itemEnglishName(item), '#ffffff', 0.95);
@@ -4683,9 +4722,12 @@ function clearStairsLandingZone(dungeon){
       ctx.beginPath();
       if (it.kind==='bow') {
         const spikes = 5;
+        const outerR = it.r;
+        const innerR = it.r * 0.46;
+        const tilt = ((state?.t || 0) * 1.6) % (Math.PI * 2);
         for (let i = 0; i < spikes * 2; i++) {
-          const a = -Math.PI / 2 + (i / (spikes * 2)) * Math.PI * 2;
-          const rr = i % 2 === 0 ? it.r * 1.15 : it.r * 0.48;
+          const a = -Math.PI / 2 + tilt + (i / (spikes * 2)) * Math.PI * 2;
+          const rr = i % 2 === 0 ? outerR : innerR;
           const px = x + Math.cos(a) * rr;
           const py = y + Math.sin(a) * rr;
           if (!i) ctx.moveTo(px, py); else ctx.lineTo(px, py);
