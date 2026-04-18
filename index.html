@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.6.02-homing-missile-steering</div>
+  <div id="versionTag">ver. 0.6.03-nest-rate-cap</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -224,7 +224,7 @@
     // Debug / tuning knobs
     // ------------------------------
     // 開始階。検証用にここを書き換える。
-    const START_FLOOR = 19;
+    const START_FLOOR = 1;
     const ROOM_JOIN_INSET_TILES = 2.8;
     const ROOM_COLLISION_INSET_PX = 14;
     const HALL_COLLISION_INSET_PX = 14;
@@ -2646,6 +2646,9 @@ function clearStairsLandingZone(dungeon){
         if (encounterTheme === 'nest' || Math.random() < (0.14 + state.floor * 0.012) * waveScale) {
           const sx = room.cx*TILE, sy = room.cy*TILE;
           if (!isFarFromStartSpawn(sx, sy, state.dungeon.start)) continue;
+          const nestPerMinuteTarget = Math.min(100, 12 + (state.floor - 1) * (88 / 49));
+          const nestBurst = Math.min(7, 2 + Math.floor(state.floor / 10));
+          const nestSpawnEvery = (60 * nestBurst) / nestPerMinuteTarget;
           spawners.push({
             x:sx,
             y:sy,
@@ -2653,10 +2656,10 @@ function clearStairsLandingZone(dungeon){
             hp:16,
             maxHp:16,
             defense:1,
-            spawnEvery:Math.max(2.6, 5.4 - state.floor*0.12),
+            spawnEvery:nestSpawnEvery,
             last:0,
             dead:false,
-            burst:2 + Math.floor(state.floor/4)
+            burst:nestBurst
           });
         }
       }
