@@ -196,7 +196,7 @@
   </div>
   <div id="overlay"></div>
   <div id="floorTransition"></div>
-  <div id="versionTag">ver. 0.6.03-nest-rate-cap</div>
+  <div id="versionTag">ver. 0.6.04-magic-early-buff</div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -732,10 +732,10 @@
       const raw = (pointCore + hpAssist) * reward;
 
       const logScale = Math.log2(p + 1);
-      const minRatio = (enemy && enemy.boss) ? 0.08 : 0.32;
+      const minRatio = (enemy && enemy.boss) ? 0.10 : 0.42;
       const maxRatio = (enemy && enemy.boss)
-        ? Math.min(0.20, 0.10 + logScale * 0.011)
-        : Math.min(0.98, 0.55 + logScale * 0.05);
+        ? Math.min(0.22, 0.12 + logScale * 0.012)
+        : Math.min(0.98, 0.72 + logScale * 0.035);
 
       const hpMax = Math.max(1, (enemy && enemy.hpMax) || 1);
       const minDamage = hpMax * minRatio;
@@ -4218,7 +4218,7 @@ function clearStairsLandingZone(dungeon){
           ? swordTiers[randi(0, swordTiers.length-1)]
           : bowTiers[randi(0, bowTiers.length-1)];
         if (kind === 'sword') state.pickups.push({x,y,kind,tier,r:8,points:randi(1,5)});
-        else if (kind === 'bow') state.pickups.push({x,y,kind,tier,r:8,points:randi(1,4)});
+        else if (kind === 'bow') state.pickups.push({x,y,kind,tier,r:8,points:randi(3,8)});
         else state.pickups.push({x,y,kind,tier,r:8});
       }
 
